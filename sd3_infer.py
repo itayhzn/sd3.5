@@ -658,15 +658,15 @@ def main(
 
 
 if __name__ == "__main__":
-    datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # redirect output to a file
-    with open(f"jobs-out-err/{datetime_str}.out", "w") as f:
-        os.dup2(f.fileno(), 1)
-    # redirect error output to a file
-    with open(f"jobs-out-err/{datetime_str}.err", "w") as f:
-        os.dup2(f.fileno(), 2)
+    # # redirect output to a file
+    # with open(f"jobs-out-err/{datetime_str}.out", "w") as f:
+    #     os.dup2(f.fileno(), 1)
+    # # redirect error output to a file
+    # with open(f"jobs-out-err/{datetime_str}.err", "w") as f:
+    #     os.dup2(f.fileno(), 2)
     
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
 
     fire.Fire(main)
