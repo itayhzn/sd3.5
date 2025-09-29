@@ -242,11 +242,12 @@ class CFGDenoiser(torch.nn.Module):
             # Per-pixel saliency: ||∂L/∂x|| over channels
             g = x_leaf.grad
 
+            current_timestep = f'{int(timestep[0].item()):03d}'
             save_tensors(save_tensors_path, {
-                f"x_t={timestep[0].item():06.1f}": x_leaf[0].detach().cpu(),
-                f"pos_out_t={timestep[0].item():06.1f}": pos_out[0].detach().cpu(),
-                f"neg_out_t={timestep[0].item():06.1f}": neg_out[0].detach().cpu(),
-                f"grad_t={timestep[0].item():06.1f}": g[0].detach().cpu(),
+                f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
+                f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
+                f"neg_out_t={current_timestep}": neg_out[0].detach().cpu(),
+                f"grad_t={current_timestep}": g[0].detach().cpu(),
             })
 
         # CFG output for the denoiser step
