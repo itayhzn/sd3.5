@@ -242,7 +242,8 @@ class CFGDenoiser(torch.nn.Module):
             # Per-pixel saliency: ||∂L/∂x|| over channels
             g = x_leaf.grad
 
-            current_timestep = f'{int(timestep[0].item()):03d}'
+            current_timestep = f'{int(timestep[0].item()*1000):03d}'
+            
             save_tensors(save_tensors_path, {
                 f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
                 f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
