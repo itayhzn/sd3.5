@@ -349,6 +349,7 @@ class SD3Inferencer:
         controlnet_cond=None,
         denoise=1.0,
         skip_layer_config={},
+        save_tensors_path=None,
     ) -> torch.Tensor:
         self.print("Sampling...")
         latent = latent.half().cuda()
@@ -363,6 +364,7 @@ class SD3Inferencer:
             "uncond": neg_cond,
             "cond_scale": cfg_scale,
             "controlnet_cond": controlnet_cond,
+            "save_tensors_path": save_tensors_path
         }
         noise_scaled = self.sd3.model.model_sampling.noise_scaling(
             sigmas[0], noise, latent, self.max_denoise(sigmas)
@@ -373,6 +375,8 @@ class SD3Inferencer:
             if skip_layer_config.get("scale", 0) > 0
             else CFGDenoiser
         )
+        print(f"skip_layer_config.get('scale', 0) is {skip_layer_config.get('scale', 0)}")
+        print(f"Using denoiser: {denoiser.__class__.__name__}")
         latent = sample_fn(
             denoiser(self.sd3.model, steps, skip_layer_config),
             noise_scaled,
@@ -480,6 +484,9 @@ class SD3Inferencer:
             else:  # fixed
                 seed_num = seed
             conditioning = self.get_cond(prompt)
+            save_path = os.path.join(out_dir, f"{i:06d}")
+            save_tensors_path = 'tensors/' + save_path
+            save_path += '.png'
             sampled_latent = self.do_sampling(
                 latent,
                 seed_num,
@@ -491,9 +498,9 @@ class SD3Inferencer:
                 controlnet_cond,
                 denoise if init_image else 1.0,
                 skip_layer_config,
+                save_tensors_path=save_tensors_path
             )
             image = self.vae_decode(sampled_latent)
-            save_path = os.path.join(out_dir, f"{i:06d}.png")
             self.print(f"Saving to to {save_path}")
             image.save(save_path)
             self.print("Done")

@@ -13,7 +13,9 @@ import torch.nn as nn
 
 from dit_embedder import ControlNetEmbedder
 from mmditx import MMDiTX
-from typing import Tuple
+from typing 
+from utils import save_tensors
+import torch.nn.functional as F
 
 #################################################################################################
 ### MMDiT Model Wrapping
@@ -200,19 +202,58 @@ class CFGDenoiser(torch.nn.Module):
         cond,
         uncond,
         cond_scale,
+        save_tensors_path=None,
         **kwargs,
     ):
-        # Run cond and uncond in a batch together
-        batched = self.model.apply_model(
-            torch.cat([x, x]),
-            torch.cat([timestep, timestep]),
-            c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
-            y=torch.cat([cond["y"], uncond["y"]]),
-            **kwargs,
-        )
-        # Then split and apply CFG Scaling
-        pos_out, neg_out = batched.chunk(2)
-        scaled = neg_out + (pos_out - neg_out) * cond_scale
+        # # Run cond and uncond in a batch together
+        # batched = self.model.apply_model(
+        #     torch.cat([x, x]),
+        #     torch.cat([timestep, timestep]),
+        #     c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
+        #     y=torch.cat([cond["y"], uncond["y"]]),
+        #     **kwargs,
+        # )
+        # # Then split and apply CFG Scaling
+        # pos_out, neg_out = batched.chunk(2)
+        # scaled = neg_out + (pos_out - neg_out) * cond_scale
+
+        # Saliency path: take gradient w.r.t. x to measure CFG influence
+        x_leaf = x.detach().requires_grad_(True)
+        timestep = timestep.detach()
+        # Freeze model parameters
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        with torch.enable_grad():
+            
+            batched = self.model.apply_model(
+                torch.cat([x_leaf, x_leaf]),
+                torch.cat([timestep, timestep]),
+                c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
+                y=torch.cat([cond["y"], uncond["y"]]),
+                **kwargs,
+            )
+            pos_out, neg_out = batched.chunk(2)
+            
+            # Scalar objective: magnitude of cond-uncond disagreement
+            loss = F.mse_loss(pos_out, neg_out, reduction='mean')
+            loss.backward()
+
+            # Per-pixel saliency: ||∂L/∂x|| over channels
+            g = x_leaf.grad
+
+            save_tensors(save_tensors_path, {
+                f"x_t={timestep[0].item():06.1f}": x_leaf[0].detach().cpu(),
+                f"pos_out_t={timestep[0].item():06.1f}": pos_out[0].detach().cpu(),
+                f"neg_out_t={timestep[0].item():06.1f}": neg_out[0].detach().cpu(),
+                f"grad_t={timestep[0].item():06.1f}": g[0].detach().cpu(),
+            })
+
+        # CFG output for the denoiser step
+        pos_out = pos_out.detach()
+        neg_out = neg_out.detach()
+        scaled = neg_out + () * cond_scale
+
         return scaled
 
 
