@@ -651,7 +651,7 @@ def main(
 
 
 if __name__ == "__main__":
-    datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # redirect output to a file
     with open(f"jobs-out-err/{datetime_str}.out", "w") as f:
