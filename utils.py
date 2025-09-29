@@ -12,11 +12,11 @@ def save_tensors(save_tensors_dir, tensors_dict):
     if not os.path.exists(save_tensors_dir):
         os.makedirs(save_tensors_dir)
 
-    print(f'======= Saving tensors to {save_tensors_dir}')
+    # print(f'======= Saving tensors to {save_tensors_dir}')
     for name, tensor in tensors_dict.items():
         if isinstance(tensor, torch.Tensor):
-            print(f'\tSaving tensor {name} to {os.path.join(save_tensors_dir, name)}')
+            # print(f'\tSaving tensor {name} to {os.path.join(save_tensors_dir, name)}')
             torch.save(tensor, os.path.join(save_tensors_dir, f'{name}.pt'))
         else:
             print(f'{name} is not a tensor, skipping save. Type: {type(tensor)}')
-    print(f'======= Saved tensors to {save_tensors_dir}')
+    # print(f'======= Saved tensors to {save_tensors_dir}')
