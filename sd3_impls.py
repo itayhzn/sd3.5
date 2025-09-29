@@ -13,7 +13,7 @@ import torch.nn as nn
 
 from dit_embedder import ControlNetEmbedder
 from mmditx import MMDiTX
-from typing 
+from typing import Tuple
 from utils import save_tensors
 import torch.nn.functional as F
 
