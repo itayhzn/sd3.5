@@ -252,7 +252,7 @@ class CFGDenoiser(torch.nn.Module):
         # CFG output for the denoiser step
         pos_out = pos_out.detach()
         neg_out = neg_out.detach()
-        scaled = neg_out + () * cond_scale
+        scaled = neg_out + (pos_out - neg_out) * cond_scale
 
         return scaled
 
