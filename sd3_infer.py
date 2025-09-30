@@ -641,10 +641,10 @@ def main(
                 else ""
             )
         ),
-        datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + '_'
-        (f'{experiment_name}_' if experiment_name is not None else '') +
-        (f'{experiment_setting}_' if experiment_setting != "" else '') +
-        os.path.splitext(os.path.basename(sanitized_prompt))[0][:50]
+        datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + '_' 
+        + (f'{experiment_name}_' if experiment_name is not None else '')
+        + (f'{experiment_setting}_' if experiment_setting != "" else '')
+        + os.path.splitext(os.path.basename(sanitized_prompt))[0][:50]
         + (postfix if postfix is not None else ""),
     )
 

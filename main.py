@@ -67,6 +67,8 @@ if __name__ == "__main__":
     print("Prompts:", args.prompts)
     print("Seeds:", args.seeds)
     print("Experiment settings:", args.experiment_settings)
+    # flush output
+    print("", flush=True)
 
     for prompt in args.prompts:
         for seed in args.seeds:
