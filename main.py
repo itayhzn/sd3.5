@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--experiment_settings',
         type=str,
-        default=[""],
+        default=[],
         help='The experiment settings to use. -1: no saliency computation',)
     parser.add_argument(
         "--prompts",
@@ -50,7 +50,9 @@ if __name__ == "__main__":
     
     os.system('nvidia-smi')
 
-    if len(args.experiment_settings) == 1 and args.experiment_settings[0] == "auto":
+    if len(args.experiment_settings) == 0:
+        args.experiment_settings = [""]  # default setting
+    elif len(args.experiment_settings) == 1 and args.experiment_settings[0] == "auto":
         args.prompts = ['A white cat playing with a red ball.']
         args.seeds = [23]
         args.experiment_settings = []
