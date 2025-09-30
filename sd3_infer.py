@@ -508,6 +508,7 @@ class SD3Inferencer:
             )
             image = self.vae_decode(sampled_latent)
             self.print(f"Saving to to {save_path}")
+            os.makedirs(out_dir, exist_ok=True)
             image.save(save_path)
             self.print("Done")
 
