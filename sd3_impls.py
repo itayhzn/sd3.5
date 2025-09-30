@@ -196,8 +196,7 @@ class CFGDenoiser(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(
-        self,
+    def run_experiment(self,
         x,
         timestep,
         cond,
@@ -205,8 +204,7 @@ class CFGDenoiser(torch.nn.Module):
         cond_scale,
         save_tensors_path=None,
         experiment_setting="", 
-        **kwargs,
-    ):
+        **kwargs,):
         pattern = re.compile(r'^(?P<mask_type>-|m-?\d+)\.(?P<branch>[\+\-\*])$')
         experiment_setting = pattern.match(experiment_setting.strip())
         if experiment_setting is not None:
@@ -214,23 +212,24 @@ class CFGDenoiser(torch.nn.Module):
             branch = experiment_setting.group('branch')
 
             # Saliency path: take gradient w.r.t. x to measure CFG influence
-            x_leaf = x.detach().requires_grad_(True)
-            timestep = timestep.detach()
+            x_leaf = x.detach().clone().requires_grad_(True)
+            timestep = timestep.detach().clone()
+            cond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in cond.items() }
+            uncond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in uncond.items() }
+
             # Freeze model parameters
             for param in self.model.parameters():
                 param.requires_grad = False
 
             if mask_type.startswith("m"):
-                token = int(mask_type[1:]) 
-                token = token if token >= 0 else -1*token # abs(token)
-                
-                c = cond["c_crossattn"].clone()
+                token = int(mask_type[1:])
+                token = token if token >= 0 else -1 * token  # abs(token)
+
                 if mask_type[1] == "-": # mask everything but token
-                    c[:, :token, :] = 0.0
-                    c[:, token+1:, :] = 0.0
+                    cond["c_crossattn"][:, :token, :] = 0.0
+                    cond["c_crossattn"][:, token+1:, :] = 0.0
                 else: # mask only token
-                    c[:, token, :] = 0.0
-                uncond = {**cond, "c_crossattn": c}
+                    cond["c_crossattn"][:, token, :] = 0.0
             
             with torch.enable_grad():
                 
@@ -257,7 +256,7 @@ class CFGDenoiser(torch.nn.Module):
                 # Per-pixel saliency: ||∂L/∂x|| over channels
                 g = x_leaf.grad
                 
-                current_timestep = f'{int(timestep[0].item()*1000):03d}'
+                current_timestep = f'{int(timestep[0].item()*1000):04d}'
 
                 print(f'Saving tensors at timestep {current_timestep}')
                 save_tensors(save_tensors_path, {
@@ -267,7 +266,21 @@ class CFGDenoiser(torch.nn.Module):
                     f"x_grad_t={current_timestep}": g[0].detach().cpu(),
                 })
 
-        # Run cond and uncond in a batch together
+            del x_leaf, timestep
+            del cond["c_crossattn"], uncond["c_crossattn"], cond['y'], uncond['y']
+            del g, loss, pos_out, neg_out, batched
+
+    def forward(
+        self,
+        x,
+        timestep,
+        cond,
+        uncond,
+        cond_scale,
+        save_tensors_path=None,
+        experiment_setting="", 
+        **kwargs,
+    ):
         batched = self.model.apply_model(
             torch.cat([x, x]),
             torch.cat([timestep, timestep]),
@@ -278,6 +291,9 @@ class CFGDenoiser(torch.nn.Module):
         # Then split and apply CFG Scaling
         pos_out, neg_out = batched.chunk(2)
         scaled = neg_out + (pos_out - neg_out) * cond_scale
+
+        self.run_experiment(x, timestep, cond, uncond, cond_scale, save_tensors_path, experiment_setting, **kwargs)
+
         return scaled
 
 class SkipLayerCFGDenoiser(torch.nn.Module):
