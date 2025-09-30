@@ -64,6 +64,11 @@ if __name__ == "__main__":
     args.prompts = ["A white cat playing with a red ball."]
     args.seeds = [23]
 
+    print("Experiment name:", args.experiment_name)
+    print("Prompts:", args.prompts)
+    print("Seeds:", args.seeds)
+    print("Experiment settings:", args.experiment_settings)
+
     for prompt in args.prompts:
         for seed in args.seeds:
             for experiment_setting in args.experiment_settings:
