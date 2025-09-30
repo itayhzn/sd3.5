@@ -52,14 +52,13 @@ if __name__ == "__main__":
 
     if len(args.experiment_settings) == 1 and args.experiment_settings[0] == "":
         args.experiment_settings = []
-        for branch in ["+", "-", "*"]:
-            for i in ["-",2,7,1,6,3,0,4,5,9]:
-                m = f"-" if i == "-" else f"m{sign}{i}"
-                if m == "-":
-                    args.experiment_settings.append(f"{m}.{branch}")
+        for i in ["-",2,7,1,6,3,0,4,5,9]:
+            for branch in ["+", "-", "*"]:
+                if i == '-':
+                    args.experiment_settings.append(f"-.{branch}")
                     continue
                 for sign in ["", "-"]:
-                    args.experiment_settings.append(f"{m}.{branch}")
+                    args.experiment_settings.append(f"m{sign}{i}.{branch}")
 
     args.prompts = ["A white cat playing with a red ball."]
     args.seeds = [23]
