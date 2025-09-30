@@ -650,8 +650,6 @@ def main(
         + (postfix if postfix is not None else ""),
     )
 
-    os.makedirs(out_dir, exist_ok=False)
-
     inferencer.gen_image(
         prompts,
         width,
