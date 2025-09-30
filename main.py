@@ -28,7 +28,7 @@ if __name__ == "__main__":
         "--prompts",
         type=str,
         nargs="*",
-        default=read_file("videojam_prompts.txt"),
+        default=(read_file("videojam_prompts.txt")+read_file("sd-prompts.txt")),
         help="The text prompts to generate images or videos from",)
     parser.add_argument(
         "--seeds",
@@ -50,7 +50,9 @@ if __name__ == "__main__":
     
     os.system('nvidia-smi')
 
-    if len(args.experiment_settings) == 1 and args.experiment_settings[0] == "":
+    if len(args.experiment_settings) == 1 and args.experiment_settings[0] == "auto":
+        args.prompts = ['A white cat playing with a red ball.']
+        args.seeds = [23]
         args.experiment_settings = []
         for i in ["-",2,7,1,6,3,0,4,5,9]:
             for branch in ["*", "+", "-"]:
@@ -60,13 +62,6 @@ if __name__ == "__main__":
                 for sign in ["", "-"]:
                     args.experiment_settings.append(f"m{sign}{i}.{branch}")
 
-    args.prompts = ["A white cat playing with a red ball."]
-    args.seeds = [23]
-
-    print("Experiment name:", args.experiment_name)
-    print("Prompts:", args.prompts)
-    print("Seeds:", args.seeds)
-    print("Experiment settings:", args.experiment_settings)
     # flush output
     print("", flush=True)
 
