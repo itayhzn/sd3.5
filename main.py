@@ -28,7 +28,7 @@ if __name__ == "__main__":
         "--prompts",
         type=str,
         nargs="*",
-        default=(read_file("videojam_prompts.txt")+read_file("sd-prompts.txt")),
+        default=(read_file("videojam_prompts.txt")+read_file("sd_prompts.txt")),
         help="The text prompts to generate images or videos from",)
     parser.add_argument(
         "--seeds",
