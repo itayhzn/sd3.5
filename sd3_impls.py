@@ -16,6 +16,7 @@ from mmditx import MMDiTX
 from typing import Tuple
 from utils import save_tensors
 import torch.nn.functional as F
+import re
 
 #################################################################################################
 ### MMDiT Model Wrapping
@@ -203,62 +204,81 @@ class CFGDenoiser(torch.nn.Module):
         uncond,
         cond_scale,
         save_tensors_path=None,
+        experiment_setting="", 
         **kwargs,
     ):
-        # # Run cond and uncond in a batch together
-        # batched = self.model.apply_model(
-        #     torch.cat([x, x]),
-        #     torch.cat([timestep, timestep]),
-        #     c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
-        #     y=torch.cat([cond["y"], uncond["y"]]),
-        #     **kwargs,
-        # )
-        # # Then split and apply CFG Scaling
-        # pos_out, neg_out = batched.chunk(2)
-        # scaled = neg_out + (pos_out - neg_out) * cond_scale
+        pattern = re.compile(r'^(?P<mask_type>-|m-?\d+)\.(?P<branch>[\+\-\*])$')
+        experiment_setting = pattern.match(experiment_setting.strip())
+        if experiment_setting is not None:
+            mask_type = experiment_setting.group('mask_type')
+            branch = experiment_setting.group('branch')
 
-        # Saliency path: take gradient w.r.t. x to measure CFG influence
-        x_leaf = x.detach().requires_grad_(True)
-        timestep = timestep.detach()
-        # Freeze model parameters
-        for param in self.model.parameters():
-            param.requires_grad = False
+            # Saliency path: take gradient w.r.t. x to measure CFG influence
+            x_leaf = x.detach().requires_grad_(True)
+            timestep = timestep.detach()
+            # Freeze model parameters
+            for param in self.model.parameters():
+                param.requires_grad = False
 
-        with torch.enable_grad():
+            if mask_type.startswith("m"):
+                token = int(mask_type[1:]) 
+                token = token if token >= 0 else -1*token # abs(token)
+                
+                c = cond["c_crossattn"].clone()
+                if mask_type[1] == "-": # mask everything but token
+                    c[:, :token, :] = 0.0
+                    c[:, token+1:, :] = 0.0
+                else: # mask only token
+                    c[:, token, :] = 0.0
+                uncond = {**cond, "c_crossattn": c}
             
-            batched = self.model.apply_model(
-                torch.cat([x_leaf, x_leaf]),
-                torch.cat([timestep, timestep]),
-                c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
-                y=torch.cat([cond["y"], uncond["y"]]),
-                **kwargs,
-            )
-            pos_out, neg_out = batched.chunk(2)
-            
-            # Scalar objective: magnitude of cond-uncond disagreement
-            loss = F.mse_loss(pos_out, neg_out, reduction='mean')
-            loss.backward()
+            with torch.enable_grad():
+                
+                batched = self.model.apply_model(
+                    torch.cat([x_leaf, x_leaf]),
+                    torch.cat([timestep, timestep]),
+                    c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
+                    y=torch.cat([cond["y"], uncond["y"]]),
+                    **kwargs,
+                )
+                pos_out, neg_out = batched.chunk(2)
+                
+                if branch == "+":
+                    neg_out = neg_out.detach() # No saliency for uncond branch
+                elif branch == "-":
+                    pos_out = pos_out.detach() # No saliency for cond branch
+                else: # branch == "*":
+                    pass # Saliency for both branches
+                
+                # Scalar objective: magnitude of cond-uncond disagreement
+                loss = F.mse_loss(pos_out, neg_out, reduction='mean')
+                loss.backward()
 
-            # Per-pixel saliency: ||∂L/∂x|| over channels
-            g = x_leaf.grad
+                # Per-pixel saliency: ||∂L/∂x|| over channels
+                g = x_leaf.grad
+                
+                current_timestep = f'{int(timestep[0].item()*1000):03d}'
 
-            current_timestep = f'{int(timestep[0].item()*1000):03d}'
+                print(f'Saving tensors at timestep {current_timestep}')
+                save_tensors(save_tensors_path, {
+                    f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
+                    f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
+                    f"neg_out_t={current_timestep}": neg_out[0].detach().cpu(),
+                    f"x_grad_t={current_timestep}": g[0].detach().cpu(),
+                })
 
-            print(f'Saving tensors at timestep {current_timestep}')
-            save_tensors(save_tensors_path, {
-                f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
-                f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
-                f"neg_out_t={current_timestep}": neg_out[0].detach().cpu(),
-                f"grad_t={current_timestep}": g[0].detach().cpu(),
-            })
-
-        # CFG output for the denoiser step
-        pos_out = pos_out.detach()
-        neg_out = neg_out.detach()
+        # Run cond and uncond in a batch together
+        batched = self.model.apply_model(
+            torch.cat([x, x]),
+            torch.cat([timestep, timestep]),
+            c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
+            y=torch.cat([cond["y"], uncond["y"]]),
+            **kwargs,
+        )
+        # Then split and apply CFG Scaling
+        pos_out, neg_out = batched.chunk(2)
         scaled = neg_out + (pos_out - neg_out) * cond_scale
-
         return scaled
-
 
 class SkipLayerCFGDenoiser(torch.nn.Module):
     """Helper for applying CFG Scaling to diffusion outputs"""

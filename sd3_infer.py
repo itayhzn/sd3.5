@@ -350,6 +350,7 @@ class SD3Inferencer:
         denoise=1.0,
         skip_layer_config={},
         save_tensors_path=None,
+        experiment_setting="",
     ) -> torch.Tensor:
         self.print("Sampling...")
         latent = latent.half().cuda()
@@ -364,7 +365,8 @@ class SD3Inferencer:
             "uncond": neg_cond,
             "cond_scale": cfg_scale,
             "controlnet_cond": controlnet_cond,
-            "save_tensors_path": save_tensors_path
+            "save_tensors_path": save_tensors_path,
+            "experiment_setting": experiment_setting
         }
         noise_scaled = self.sd3.model.model_sampling.noise_scaling(
             sigmas[0], noise, latent, self.max_denoise(sigmas)
@@ -458,6 +460,7 @@ class SD3Inferencer:
         init_image=INIT_IMAGE,
         denoise=DENOISE,
         skip_layer_config={},
+        experiment_setting=""
     ):
         controlnet_cond = None
         if init_image:
@@ -476,6 +479,7 @@ class SD3Inferencer:
         neg_cond = self.get_cond("")
         seed_num = None
         pbar = tqdm(enumerate(prompts), total=len(prompts), position=0, leave=True)
+
         for i, prompt in pbar:
             if seed_type == "roll":
                 seed_num = seed if seed_num is None else seed_num + 1
@@ -498,7 +502,8 @@ class SD3Inferencer:
                 controlnet_cond,
                 denoise if init_image else 1.0,
                 skip_layer_config,
-                save_tensors_path=save_tensors_path
+                save_tensors_path=save_tensors_path,
+                experiment_setting=experiment_setting
             )
             image = self.vae_decode(sampled_latent)
             self.print(f"Saving to to {save_path}")
@@ -577,6 +582,8 @@ def main(
     verbose=False,
     model_folder=MODEL_FOLDER,
     text_encoder_device="cpu",
+    experiment_setting="",
+    experiment_name=None,
     **kwargs,
 ):
     assert not kwargs, f"Unknown arguments: {kwargs}"
@@ -634,8 +641,11 @@ def main(
                 else ""
             )
         ),
+        datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + '_'
+        (f'{experiment_name}_' if experiment_name is not None else '') +
+        (f'{experiment_setting}_' if experiment_setting != "" else '') +
         os.path.splitext(os.path.basename(sanitized_prompt))[0][:50]
-        + (postfix or datetime.datetime.now().strftime("_%Y-%m-%dT%H-%M-%S")),
+        + (postfix if postfix is not None else ""),
     )
 
     os.makedirs(out_dir, exist_ok=False)
@@ -654,6 +664,7 @@ def main(
         init_image,
         denoise,
         skip_layer_config,
+        experiment_setting=experiment_setting,
     )
 
 

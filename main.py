@@ -17,8 +17,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--experiment_name",
         type=str,
-        default="default",
+        default=None,
         help="The name of the experiment to run",)
+    parser.add_argument(
+        '--experiment_settings',
+        type=str,
+        default=[""],
+        help='The experiment settings to use. -1: no saliency computation',)
     parser.add_argument(
         "--prompts",
         type=str,
@@ -29,7 +34,7 @@ if __name__ == "__main__":
         "--seeds",
         type=int,
         nargs="*",
-        default=[11],
+        default=[23],
         help="The random seeds to use for generation",)
     
     args = parser.parse_args()
@@ -45,13 +50,33 @@ if __name__ == "__main__":
     
     os.system('nvidia-smi')
 
+    if len(args.experiment_settings) == 1 and args.experiment_settings[0] == "":
+        args.experiment_settings = []
+        for branch in ["+", "-", "*"]:
+            for i in ["-",2,7,1,6,3,0,4,5,9]:
+                m = f"-" if i == "-" else f"m{sign}{i}"
+                if m == "-":
+                    args.experiment_settings.append(f"{m}.{branch}")
+                    continue
+                for sign in ["", "-"]:
+                    args.experiment_settings.append(f"{m}.{branch}")
+
+    args.prompts = ["A white cat playing with a red ball."]
+    args.seeds = [23]
+
     for prompt in args.prompts:
         for seed in args.seeds:
-            command = f"""conda run -n myenv python3 ./sd3_infer.py --prompt \"{prompt}\" --seed {seed} --verbose"""
-            
-            print("\nRunning command:", command)
-            status_code = os.system(command)
+            for experiment_setting in args.experiment_settings:
+                command = f"""conda run -n myenv python3 ./sd3_infer.py --prompt \"{prompt}\" --seed {seed} --verbose"""
 
-            if status_code != 0:
-                print("\tCommand:\n\t", command, "\nfailed with status code", status_code)
-                continue
+                if args.experiment_name is not None:
+                    command += f' --experiment_name "{args.experiment_name}"'
+                if experiment_setting != "":
+                    command += f' --experiment_setting "{experiment_setting}"'
+                
+                print("\nRunning command:", command)
+                status_code = os.system(command)
+
+                if status_code != 0:
+                    print("\tCommand:\n\t", command, "\nfailed with status code", status_code)
+                    continue
