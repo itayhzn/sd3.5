@@ -53,7 +53,7 @@ if __name__ == "__main__":
     if len(args.experiment_settings) == 1 and args.experiment_settings[0] == "":
         args.experiment_settings = []
         for i in ["-",2,7,1,6,3,0,4,5,9]:
-            for branch in ["+", "-", "*"]:
+            for branch in ["*", "+", "-"]:
                 if i == '-':
                     args.experiment_settings.append(f"-.{branch}")
                     continue

@@ -221,8 +221,8 @@ CFG_SCALE = 4.5
 STEPS = 40
 # Seed
 SEED = 23
-# SEEDTYPE = "fixed"
-SEEDTYPE = "rand"
+SEEDTYPE = "fixed"
+# SEEDTYPE = "rand"
 # SEEDTYPE = "roll"
 # Actual model file path
 MODEL = "models/sd3.5_medium.safetensors"
@@ -488,6 +488,7 @@ class SD3Inferencer:
             else:  # fixed
                 seed_num = seed
             conditioning = self.get_cond(prompt)
+            out_dir = out_dir + f'_{seed_num}'
             save_path = os.path.join(out_dir, f"{i:06d}")
             save_tensors_path = 'tensors/' + save_path
             save_path += '.png'
