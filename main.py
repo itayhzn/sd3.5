@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     if len(args.experiment_settings) == 0:
         args.experiment_settings = [""]  # default setting
-    elif len(args.experiment_settings) == 1 and args.experiment_settings[0] == "auto":
+    elif len(args.experiment_settings) == 1 and args.experiment_settings[0] == "all":
         args.prompts = ['A white cat playing with a red ball.']
         args.seeds = [23]
         args.experiment_settings = []

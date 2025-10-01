@@ -205,6 +205,9 @@ class CFGDenoiser(torch.nn.Module):
         save_tensors_path=None,
         experiment_setting="", 
         **kwargs,):
+        if experiment_setting == "":
+            experiment_setting = '-.*'  # default: saliency for all tokens, both branches
+            
         pattern = re.compile(r'^(?P<mask_type>-|m-?\d+)\.(?P<branch>[\+\-\*])$')
         experiment_setting = pattern.match(experiment_setting.strip())
         if experiment_setting is not None:
