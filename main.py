@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--experiment_settings',
         type=str,
-        default=[],
+        default=['-.*'],
         help='The experiment settings to use. -1: no saliency computation',)
     parser.add_argument(
         "--prompts",
