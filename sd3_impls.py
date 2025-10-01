@@ -254,16 +254,16 @@ class CFGDenoiser(torch.nn.Module):
                 loss.backward()
 
                 # Per-pixel saliency: ||∂L/∂x|| over channels
-                g = x_leaf.grad
-                
+                g = x_leaf.grad[0].detach().cpu()  # [C,H,W]
+                g = g.max(dim=0).values  # [H,W]
                 current_timestep = f'{int(timestep[0].item()*1000):04d}'
 
                 print(f'Saving tensors at timestep {current_timestep}')
                 save_tensors(save_tensors_path, {
-                    f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
-                    f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
-                    f"neg_out_t={current_timestep}": neg_out[0].detach().cpu(),
-                    f"x_grad_t={current_timestep}": g[0].detach().cpu(),
+                    # f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
+                    # f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
+                    # f"neg_out_t={current_timestep}": neg_out[0].detach().cpu(),
+                    f"x_grad_t={current_timestep}": g,
                 })
 
             del x_leaf, timestep
