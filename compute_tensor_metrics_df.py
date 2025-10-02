@@ -59,7 +59,7 @@ if __name__ == "__main__":
         'saliency_mass': compute_saliency_mass
     }
 
-    dir_predicate = lambda x: 'dataset-02' in x
+    dir_predicate = lambda x: 'dataset-03' in x
 
     df = compute_metric_in_stream(dir_predicate=dir_predicate, metric_fns=metric_fns)
     df.to_csv('tensor_metrics_df.csv', index=False)
