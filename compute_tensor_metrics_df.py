@@ -1,3 +1,4 @@
+import sys
 import torch
 import numpy as np
 import os
@@ -80,6 +81,16 @@ def compute_var_norm(grads):
         grads = torch.tensor(grads)
     return torch.var(grads.view(grads.shape[0], -1), dim=1).cpu().numpy()
 
+def compute_var_on_diff(grads):
+    """
+        grads: tensor of shape (T, W, H) or list of tensors of shape (W, H)
+        Returns: tensor of shape (T-1,) with the var norm on the diff for each timestep
+    """
+    if isinstance(grads, list):
+        grads = torch.tensor(grads)
+    diffs = grads[1:] - grads[:-1]
+    return torch.var(diffs.view(diffs.shape[0], -1), dim=1).cpu().numpy()
+
 def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predicate=lambda x: True, tensor_predicate=lambda x, d: x.startswith('x_grad_t='), metric_fns={'mean': lambda x: np.mean(np.array(x))}):
     metrics = []
     for path in tqdm(os.listdir(base_dir)):
@@ -88,14 +99,16 @@ def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predic
         tensors = read_tensors_aux(os.path.join(base_dir, path, '000000'), tensor_predicate)
         ks = sorted(list(tensors.keys()))[::-1]
         grad = np.array([tensors[k] for k in ks])
-        for k, v in tensors.items():
-            d = { 'path': path}
-            d['tensor_name'] = ''.join(k.split('=')[:-1])
-            d['timestep'] =int(k.split('=')[-1])
-            for name, metric_fn in metric_fns.items():
-                d[name] = metric_fn(v[np.newaxis, ...])[0]
-            metrics.append(d)
-
+        for metric_name, metric_fn in metric_fns.items():
+            ms = metric_fn(grad) # (T,)
+            for k, m in zip(ks.tolist(), ms.tolist()):
+                d = { 'path': path}
+                d['tensor_name'] = ''.join(k.split('=')[:-1])
+                d['timestep'] =int(k.split('=')[-1])
+                d[metric_name] = float(m)
+                metrics.append(d)
+        sys.stdout.flush()
+        
     return pd.DataFrame(metrics)
 
 
@@ -107,6 +120,7 @@ if __name__ == "__main__":
         'max': compute_max_norm,
         'mean': compute_mean_norm,
         'var': compute_var_norm,
+        'var_on_diff': compute_var_on_diff,
     }
 
     dir_predicate = lambda x: 'dataset-03' in x
