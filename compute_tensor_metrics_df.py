@@ -91,6 +91,17 @@ def compute_var_on_diff(grads):
     diffs = torch.diff(grads, dim=0) # (T-1, W, H)
     return torch.var(diffs.view(diffs.shape[0], -1), dim=1).cpu().numpy()
 
+def compute_var_on_abs_diff(grads):
+    """
+        grads: tensor of shape (T, W, H) or list of tensors of shape (W, H)
+        Returns: tensor of shape (T-1,) with the var norm on the diff for each timestep
+    """
+    if isinstance(grads, list):
+        grads = torch.tensor(grads) # (T, W, H)
+    diffs = torch.abs(torch.diff(grads, dim=0)) # (T-1, W, H)
+    return torch.var(diffs.view(diffs.shape[0], -1), dim=1).cpu().numpy()
+
+
 def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predicate=lambda x: True, tensor_predicate=lambda x, d: x.startswith('x_grad_t='), metric_fns={'mean': lambda x: np.mean(np.array(x))}):
     metrics = []
     for path in tqdm(os.listdir(base_dir)):
@@ -121,6 +132,7 @@ if __name__ == "__main__":
         'mean': compute_mean_norm,
         'var': compute_var_norm,
         'var_on_diff': compute_var_on_diff,
+        'var_on_abs_diff': compute_var_on_abs_diff,
     }
 
     dir_predicate = lambda x: 'dataset-03' in x
