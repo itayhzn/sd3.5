@@ -18,6 +18,52 @@ from utils import save_tensors
 import torch.nn.functional as F
 import re
 
+# ------------------------------------------------------------------------------------
+# Gradient gating for attention heads
+# ------------------------------------------------------------------------------------
+
+class SDPAHeadGradGate:
+    """
+    Context manager to gate gradients per attention head by monkey-patching
+    torch.nn.functional.scaled_dot_product_attention (SDPA).
+
+    Forward values are preserved; gradients are allowed only for the selected head:
+      y = y.detach() + (y - y.detach()) * mask
+    where mask is 1 on the selected head and 0 elsewhere across [B, H, S, Dh].
+
+    head_idx: None => all heads keep gradients; int => only that head keeps gradients.
+    """
+
+    def __init__(self, head_idx=None):
+        self.head_idx = head_idx
+        self._orig = None
+
+    def __enter__(self):
+        self._orig = torch.nn.functional.scaled_dot_product_attention
+
+        def _patched(q, k, v, *args, **kwargs):
+            out = self._orig(q, k, v, *args, **kwargs)
+            # Expect out: [B, H, S_q, Dh]; if unexpected, skip gating gracefully
+            if self.head_idx == -1 or self.head_idx is None or out.ndim != 4:
+                return out
+            
+            H = out.shape[1] # number of heads
+            if not (0 <= self.head_idx < H):
+                raise ValueError(f"Invalid head_idx {self.head_idx}; model has {H} heads")
+            mask = out.new_zeros((1, H, 1, 1))
+            mask[:, self.head_idx] = 1.0
+            # Preserve forward, block gradients where mask == 0
+            return out.detach() + (out - out.detach()) * mask
+
+        torch.nn.functional.scaled_dot_product_attention = _patched
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._orig is not None:
+            torch.nn.functional.scaled_dot_product_attention = self._orig
+            self._orig = None
+        return False
+
 #################################################################################################
 ### MMDiT Model Wrapping
 #################################################################################################
@@ -206,72 +252,89 @@ class CFGDenoiser(torch.nn.Module):
         experiment_setting="", 
         **kwargs,):
         if experiment_setting == "":
-            experiment_setting = '-.*'  # default: saliency for all tokens, both branches
-            
-        pattern = re.compile(r'^(?P<mask_type>-|m-?\d+)\.(?P<branch>[\+\-\*])$')
-        experiment_setting = pattern.match(experiment_setting.strip())
-        if experiment_setting is not None:
-            mask_type = experiment_setting.group('mask_type')
-            branch = experiment_setting.group('branch')
+            experiment_setting = "-.*"  # default: saliency for all tokens, both branches, all heads
 
-            # Saliency path: take gradient w.r.t. x to measure CFG influence
-            x_leaf = x.detach().clone().requires_grad_(True)
-            timestep = timestep.detach().clone()
-            cond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in cond.items() }
-            uncond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in uncond.items() }
+        # New pattern: mask.head.branch
+        # mask: "-" | m{i} | m-{i}
+        # head: "*" | {i}
+        # branch: "+", "-", "*"
+        pattern_new = re.compile(r'^(?P<mask>-|m-?\d+)\.(?P<head>\*|\d+)\.(?P<branch>[\+\-\*])$')
+        m_new = pattern_new.match(experiment_setting.strip())
 
-            # Freeze model parameters
-            for param in self.model.parameters():
-                param.requires_grad = False
+        # Backward-compat: old pattern without head
+        pattern_old = re.compile(r'^(?P<mask>-|m-?\d+)\.(?P<branch>[\+\-\*])$')
+        m_old = pattern_old.match(experiment_setting.strip()) if m_new is None else None
 
-            if mask_type.startswith("m"):
-                token = int(mask_type[1:])
-                token = token if token >= 0 else -1 * token  # abs(token)
+        if m_new is None and m_old is None:
+            return  # nothing to run
 
-                if mask_type[1] == "-": # mask everything but token
+        mask_type = (m_new or m_old).group('mask')
+        branch = (m_new or m_old).group('branch')
+        head_spec = m_new.group('head') if m_new is not None else '*'
+        head_idx = None if head_spec == '*' else int(head_spec)
+
+        # Saliency path: take gradient w.r.t. x to measure CFG influence
+        x_leaf = x.detach().clone().requires_grad_(True)
+        timestep = timestep.detach().clone()
+        cond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in cond.items() }
+        uncond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in uncond.items() }
+
+        # Freeze model parameters
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        # Token masking on the cond branch only
+        if mask_type.startswith('m'):
+            # parse m{i} or m-{i}
+            # Accept negative sign after 'm' to indicate "keep only token i"
+            try:
+                token_spec = mask_type[1:]
+                keep_only = token_spec.startswith('-')
+                token = int(token_spec[1:]) if keep_only else int(token_spec)
+            except Exception:
+                token = None
+                keep_only = False
+            if token is not None and 0 <= token < cond["c_crossattn"].shape[1]:
+                if keep_only:
                     cond["c_crossattn"][:, :token, :] = 0.0
                     cond["c_crossattn"][:, token+1:, :] = 0.0
-                else: # mask only token
+                else:
                     cond["c_crossattn"][:, token, :] = 0.0
-            
-            with torch.enable_grad():
-                
-                batched = self.model.apply_model(
-                    torch.cat([x_leaf, x_leaf]),
-                    torch.cat([timestep, timestep]),
-                    c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
-                    y=torch.cat([cond["y"], uncond["y"]]),
-                    **kwargs,
-                )
-                pos_out, neg_out = batched.chunk(2)
-                
-                if branch == "+":
-                    neg_out = neg_out.detach() # No saliency for uncond branch
-                elif branch == "-":
-                    pos_out = pos_out.detach() # No saliency for cond branch
-                else: # branch == "*":
-                    pass # Saliency for both branches
-                
-                # Scalar objective: magnitude of cond-uncond disagreement
-                loss = F.mse_loss(pos_out, neg_out, reduction='mean')
-                loss.backward()
 
-                # Per-pixel saliency: ||∂L/∂x|| over channels
-                g = x_leaf.grad[0].detach().cpu()  # [C,H,W]
-                g = g.max(dim=0).values  # [H,W]
-                current_timestep = f'{int(timestep[0].item()*1000):04d}'
+        # Disable autocast for cleaner grads (optional, guard if cuda not available)
+        # We keep it simple: rely on torch.enable_grad and not changing autocast settings globally.
 
-                print(f'Saving tensors at timestep {current_timestep}')
-                save_tensors(save_tensors_path, {
-                    # f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
-                    # f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
-                    # f"neg_out_t={current_timestep}": neg_out[0].detach().cpu(),
-                    f"x_grad_t={current_timestep}": g,
-                })
+        with torch.enable_grad(), SDPAHeadGradGate(head_idx):
+            batched = self.model.apply_model(
+                torch.cat([x_leaf, x_leaf]),
+                torch.cat([timestep, timestep]),
+                c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
+                y=torch.cat([cond["y"], uncond["y"]]),
+                **kwargs,
+            )
+            pos_out, neg_out = batched.chunk(2)
 
-            del x_leaf, timestep
-            del cond["c_crossattn"], uncond["c_crossattn"], cond['y'], uncond['y']
-            del g, loss, pos_out, neg_out, batched
+            if branch == '+':
+                neg_out = neg_out.detach()
+            elif branch == '-':
+                pos_out = pos_out.detach()
+            # else '*' -> both contribute
+
+            loss = F.mse_loss(pos_out, neg_out, reduction='mean')
+            loss.backward()
+
+            g = x_leaf.grad[0].detach().cpu()
+            g = g.max(dim=0).values
+            current_timestep = f"{int(timestep[0].item()*1000):04d}"
+
+            print(f"Saving tensors at timestep {current_timestep}")
+            save_tensors(save_tensors_path, {
+                f"x_grad_t={current_timestep}": g,
+            })
+
+        del x_leaf, timestep
+        del cond["c_crossattn"], uncond["c_crossattn"], cond['y'], uncond['y']
+        del g, loss, pos_out, neg_out, batched
 
     def forward(
         self,
