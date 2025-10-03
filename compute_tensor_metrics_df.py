@@ -101,7 +101,7 @@ def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predic
         grad = torch.stack([tensors[k] for k in ks])
         for metric_name, metric_fn in metric_fns.items():
             ms = metric_fn(grad) # (T,)
-            for k, m in zip(ks.tolist(), ms.tolist()):
+            for k, m in zip(ks, ms):
                 d = { 'path': path}
                 d['tensor_name'] = ''.join(k.split('=')[:-1])
                 d['timestep'] =int(k.split('=')[-1])
