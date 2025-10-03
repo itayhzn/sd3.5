@@ -116,8 +116,8 @@ def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predic
                 d = { 'path': path}
                 d['tensor_name'] = ''.join(k.split('=')[:-1])
                 d['timestep'] =int(k.split('=')[-1])
-                d[metric_name] = float(m)
-                metrics.append(d)
+                d['metric_name'] = metric_name
+                d['value'] = float(m)
         sys.stdout.flush()
         
     return pd.DataFrame(metrics)
