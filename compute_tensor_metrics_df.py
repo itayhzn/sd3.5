@@ -98,7 +98,7 @@ def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predic
             continue
         tensors = read_tensors_aux(os.path.join(base_dir, path, '000000'), tensor_predicate)
         ks = sorted(list(tensors.keys()))[::-1]
-        grad = np.array([tensors[k] for k in ks])
+        grad = torch.stack([tensors[k] for k in ks])
         for metric_name, metric_fn in metric_fns.items():
             ms = metric_fn(grad) # (T,)
             for k, m in zip(ks.tolist(), ms.tolist()):
