@@ -87,8 +87,8 @@ def compute_var_on_diff(grads):
         Returns: tensor of shape (T-1,) with the var norm on the diff for each timestep
     """
     if isinstance(grads, list):
-        grads = torch.tensor(grads)
-    diffs = grads[1:] - grads[:-1]
+        grads = torch.tensor(grads) # (T, W, H)
+    diffs = torch.diff(grads, dim=0) # (T-1, W, H)
     return torch.var(diffs.view(diffs.shape[0], -1), dim=1).cpu().numpy()
 
 def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predicate=lambda x: True, tensor_predicate=lambda x, d: x.startswith('x_grad_t='), metric_fns={'mean': lambda x: np.mean(np.array(x))}):
