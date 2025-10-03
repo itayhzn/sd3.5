@@ -271,7 +271,7 @@ class CFGDenoiser(torch.nn.Module):
         mask_type = (m_new or m_old).group('mask')
         branch = (m_new or m_old).group('branch')
         head_spec = m_new.group('head') if m_new is not None else '*'
-        head_idx = None if head_spec == '*' else int(head_spec)
+        head_idx = None if head_spec == '*' else int(head_spec[1:])
 
         # Saliency path: take gradient w.r.t. x to measure CFG influence
         x_leaf = x.detach().clone().requires_grad_(True)
