@@ -258,7 +258,7 @@ class CFGDenoiser(torch.nn.Module):
         # mask: "-" | m{i} | m-{i}
         # head: "*" | {i}
         # branch: "+", "-", "*"
-        pattern_new = re.compile(r'^(?P<mask>-|m-?\d+)\.(?P<head>\*|\d+)\.(?P<branch>[\+\-\*])$')
+        pattern_new = re.compile(r'^(?P<mask>-|m-?\d+)\.(?P<head>\*|h\d+)\.(?P<branch>[\+\-\*])$')
         m_new = pattern_new.match(experiment_setting.strip())
 
         # Backward-compat: old pattern without head
