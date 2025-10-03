@@ -35,6 +35,51 @@ def compute_saliency_mass(grads):
     # W,H = grads.shape[1], grads.shape[2]
     return torch.sum(torch.abs(grads), axis=(1, 2)).cpu().numpy()
 
+def compute_l2_norm(grads):
+    """
+        grads: tensor of shape (T, W, H) or list of tensors of shape (W, H)
+        Returns: tensor of shape (T,) with the l2 norm for each timestep
+    """
+    if isinstance(grads, list):
+        grads = torch.tensor(grads)
+    return torch.norm(grads.view(grads.shape[0], -1), dim=1).cpu().numpy()
+
+def compute_l1_norm(grads):
+    """
+        grads: tensor of shape (T, W, H) or list of tensors of shape (W, H)
+        Returns: tensor of shape (T,) with the l1 norm for each timestep
+    """
+    if isinstance(grads, list):
+        grads = torch.tensor(grads)
+    return torch.norm(grads.view(grads.shape[0], -1), p=1, dim=1).cpu().numpy()
+
+def compute_max_norm(grads):
+    """
+        grads: tensor of shape (T, W, H) or list of tensors of shape (W, H)
+        Returns: tensor of shape (T,) with the max norm for each timestep
+    """
+    if isinstance(grads, list):
+        grads = torch.tensor(grads)
+    return torch.max(grads.view(grads.shape[0], -1), dim=1).values.cpu().numpy()
+
+def compute_mean_norm(grads):
+    """
+        grads: tensor of shape (T, W, H) or list of tensors of shape (W, H)
+        Returns: tensor of shape (T,) with the mean norm for each timestep
+    """
+    if isinstance(grads, list):
+        grads = torch.tensor(grads)
+    return torch.mean(grads.view(grads.shape[0], -1), dim=1).cpu().numpy()
+
+def compute_var_norm(grads):
+    """
+        grads: tensor of shape (T, W, H) or list of tensors of shape (W, H)
+        Returns: tensor of shape (T,) with the var norm for each timestep
+    """
+    if isinstance(grads, list):
+        grads = torch.tensor(grads)
+    return torch.var(grads.view(grads.shape[0], -1), dim=1).cpu().numpy()
+
 def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predicate=lambda x: True, tensor_predicate=lambda x, d: x.startswith('x_grad_t='), metric_fns={'mean': lambda x: np.mean(np.array(x))}):
     metrics = []
     for path in tqdm(os.listdir(base_dir)):
@@ -56,7 +101,12 @@ def compute_metric_in_stream(base_dir='tensors/outputs/sd3.5_medium', dir_predic
 
 if __name__ == "__main__":
     metric_fns = {
-        'saliency_mass': compute_saliency_mass
+        'saliency_mass': compute_saliency_mass,
+        'l2': compute_l2_norm,
+        'l1': compute_l1_norm,
+        'max': compute_max_norm,
+        'mean': compute_mean_norm,
+        'var': compute_var_norm,
     }
 
     dir_predicate = lambda x: 'dataset-03' in x
