@@ -482,7 +482,7 @@ class DismantledBlock(nn.Module):
         )
         self.pre_only = pre_only
 
-    def pre_attention(self, x: torch.Tensor, c: torch.Tensor):
+    def pre_attention(self, x: torch.Tensor, c: torch.Tensor, residual_gradient_flow: bool = True):
         assert x is not None, "pre_attention called with None input"
         if not self.pre_only:
             if not self.scale_mod_only:
@@ -597,7 +597,7 @@ class DismantledBlock(nn.Module):
             attn2 = attention(q2, k2, v2, self.attn2.num_heads)
             return self.post_attention_x(attn, attn2, *intermediates, residual_gradient_flow=residual_gradient_flow)
         else:
-            (q, k, v), intermediates = self.pre_attention(x, c)
+            (q, k, v), intermediates = self.pre_attention(x, c, residual_gradient_flow=residual_gradient_flow)
             attn = attention(q, k, v, self.attn.num_heads)
             return self.post_attention(attn, *intermediates, residual_gradient_flow=residual_gradient_flow)
 
