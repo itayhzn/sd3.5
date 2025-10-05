@@ -315,6 +315,7 @@ class CFGDenoiser(torch.nn.Module):
                 torch.cat([timestep, timestep]),
                 c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
                 y=torch.cat([cond["y"], uncond["y"]]),
+                skip_layers=skip_layers,
                 **kwargs,
             )
             pos_out, neg_out = batched.chunk(2)
