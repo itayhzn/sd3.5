@@ -50,9 +50,11 @@ if __name__ == "__main__":
     
     os.system('nvidia-smi')
 
-    # for head in range(24):
-    #         args.experiment_settings.append(f"-.h{head}.*")
-    args.experiment_settings = [ f"-.h*.Lskip-.Lresgate*.*", f"-.h*.Lskip-.Lresgate1.*" ]
+    args.experiment_settings = []
+    for i in range(24):
+            args.experiment_settings.append(f"-.h*.Lskip{i}.Lresgate*.*")
+    for i in range(24):
+            args.experiment_settings.append(f"-.h*.Lskip-.Lresgate{i}.*")
 
     # flush output
     print(args.experiment_settings, flush=True)
