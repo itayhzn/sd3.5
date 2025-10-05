@@ -252,26 +252,31 @@ class CFGDenoiser(torch.nn.Module):
         experiment_setting="", 
         **kwargs,):
         if experiment_setting == "":
-            experiment_setting = "-.*"  # default: saliency for all tokens, both branches, all heads
+            # Default: no token mask, all heads, no skipped layers, allow gradients in all layers, both branches
+            experiment_setting = "-.h*.Lskip-.Lresgate*.*"
 
-        # New pattern: mask.head.branch
+        # New pattern ONLY: m<mask>.h<head>.Lskip<layers>.Lresgate<layers>.<branch>
         # mask: "-" | m{i} | m-{i}
-        # head: "*" | {i}
+        # head: "*" | h{i}
+        # Lskip: '-' | list of ints separated by ',' (e.g., 1,2,3)
+        # Lresgate: '*' | list of ints separated by ',' (layers allowed to pass attention gradients)
         # branch: "+", "-", "*"
-        pattern_new = re.compile(r'^(?P<mask>-|m-?\d+)\.(?P<head>\*|h\d+)\.(?P<branch>[\+\-\*])$')
-        m_new = pattern_new.match(experiment_setting.strip())
+        pattern_full = re.compile(
+            r'^(?P<mask>-|m-?\d+)\.h(?P<head>\*|\d+)\.Lskip(?P<skip>-|\d+(?:,\d+)*)\.Lresgate(?P<resgate>\*|\d+(?:,\d+)*)\.(?P<branch>[\+\-\*])$'
+        )
+        m_full = pattern_full.match(experiment_setting.strip())
+        if m_full is None:
+            raise ValueError(f"Invalid experiment_setting: {experiment_setting}. Expected: m<mask>.h<head>.Lskip<...>.Lresgate<...>.<branch>")
 
-        # Backward-compat: old pattern without head
-        pattern_old = re.compile(r'^(?P<mask>-|m-?\d+)\.(?P<branch>[\+\-\*])$')
-        m_old = pattern_old.match(experiment_setting.strip()) if m_new is None else None
+        mask_type = m_full.group('mask')
+        branch = m_full.group('branch')
+        head_spec = m_full.group('head')
+        skip_spec = m_full.group('skip')
+        resgate_spec = m_full.group('resgate')
+        head_idx = None if head_spec == '*' else int(head_spec)
+        skip_layers = [] if skip_spec == '-' else [int(s) for s in skip_spec.split(',') if s]
+        layers_allowed = '*' if resgate_spec == '*' else {int(s) for s in resgate_spec.split(',') if s}
 
-        if m_new is None and m_old is None:
-            return  # nothing to run
-
-        mask_type = (m_new or m_old).group('mask')
-        branch = (m_new or m_old).group('branch')
-        head_spec = m_new.group('head') if m_new is not None else '*'
-        head_idx = None if head_spec == '*' else int(head_spec[1:])
 
         # Saliency path: take gradient w.r.t. x to measure CFG influence
         x_leaf = x.detach().clone().requires_grad_(True)

@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--experiment_settings',
         type=str,
-        default=['-.*'],
+        default=["-.h*.Lskip-.Lresgate*.*"],
         help='The experiment settings to use. -1: no saliency computation',)
     parser.add_argument(
         "--prompts",
@@ -50,8 +50,9 @@ if __name__ == "__main__":
     
     os.system('nvidia-smi')
 
-    for head in range(40):
-            args.experiment_settings.append(f"-.h{head}.*")
+    # for head in range(24):
+    #         args.experiment_settings.append(f"-.h{head}.*")
+    args.experiment_settings.append(f"-.h{0}.Lskip-.Lresgate*.*")
 
     # flush output
     print(args.experiment_settings, flush=True)
