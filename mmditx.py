@@ -577,6 +577,7 @@ class DismantledBlock(nn.Module):
             attn_ = attn_.detach()
         x = x + attn_
 
+        attn2_ = gate_msa2.unsqueeze(1) * self.attn2.post_attention(attn2)
         if not residual_gradient_flow:
             attn2_ = attn2_.detach()
         x = x + attn2_
