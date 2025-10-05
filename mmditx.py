@@ -506,15 +506,20 @@ class DismantledBlock(nn.Module):
             qkv = self.attn.pre_attention(modulate(self.norm1(x), shift_msa, scale_msa))
             return qkv, None
 
-    def post_attention(self, attn, x, gate_msa, shift_mlp, scale_mlp, gate_mlp):
+    def post_attention(self, attn, x, gate_msa, shift_mlp, scale_mlp, gate_mlp, residual_gradient_flow: bool = True):
         assert not self.pre_only
-        x = x + gate_msa.unsqueeze(1) * self.attn.post_attention(attn)
-        x = x + gate_mlp.unsqueeze(1) * self.mlp(
-            modulate(self.norm2(x), shift_mlp, scale_mlp)
-        )
+        a_out = gate_msa.unsqueeze(1) * self.attn.post_attention(attn)
+        if not residual_gradient_flow:
+            a_out = a_out.detach()
+        x = x + a_out
+
+        mlp_out = gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        if not residual_gradient_flow:
+            mlp_out = mlp_out.detach()
+        x = x + mlp_out
         return x
 
-    def pre_attention_x(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def pre_attention_x(self, x: torch.Tensor, c: torch.Tensor, residual_gradient_flow: bool = True) -> torch.Tensor:
         assert self.x_block_self_attn
         (
             shift_msa,
@@ -554,6 +559,7 @@ class DismantledBlock(nn.Module):
         gate_mlp,
         gate_msa2,
         attn1_dropout: float = 0.0,
+        residual_gradient_flow: bool = True,
     ):
         assert not self.pre_only
         if attn1_dropout > 0.0:
@@ -566,36 +572,44 @@ class DismantledBlock(nn.Module):
             )
         else:
             attn_ = gate_msa.unsqueeze(1) * self.attn.post_attention(attn)
+        
+        if not residual_gradient_flow:
+            attn_ = attn_.detach()
         x = x + attn_
-        attn2_ = gate_msa2.unsqueeze(1) * self.attn2.post_attention(attn2)
+
+        if not residual_gradient_flow:
+            attn2_ = attn2_.detach()
         x = x + attn2_
+        
         mlp_ = gate_mlp.unsqueeze(1) * self.mlp(
             modulate(self.norm2(x), shift_mlp, scale_mlp)
         )
+        if not residual_gradient_flow:
+            mlp_ = mlp_.detach()
         x = x + mlp_
         return x
 
-    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, c: torch.Tensor, residual_gradient_flow: bool = True) -> torch.Tensor:
         assert not self.pre_only
         if self.x_block_self_attn:
-            (q, k, v), (q2, k2, v2), intermediates = self.pre_attention_x(x, c)
+            (q, k, v), (q2, k2, v2), intermediates = self.pre_attention_x(x, c, residual_gradient_flow=residual_gradient_flow)
             attn = attention(q, k, v, self.attn.num_heads)
             attn2 = attention(q2, k2, v2, self.attn2.num_heads)
-            return self.post_attention_x(attn, attn2, *intermediates)
+            return self.post_attention_x(attn, attn2, *intermediates, residual_gradient_flow=residual_gradient_flow)
         else:
             (q, k, v), intermediates = self.pre_attention(x, c)
             attn = attention(q, k, v, self.attn.num_heads)
-            return self.post_attention(attn, *intermediates)
+            return self.post_attention(attn, *intermediates, residual_gradient_flow=residual_gradient_flow)
 
 
-def block_mixing(context, x, context_block, x_block, c):
+def block_mixing(context, x, context_block, x_block, c, residual_gradient_flow=True):
     assert context is not None, "block_mixing called with None context"
-    context_qkv, context_intermediates = context_block.pre_attention(context, c)
+    context_qkv, context_intermediates = context_block.pre_attention(context, c, residual_gradient_flow=residual_gradient_flow)
 
     if x_block.x_block_self_attn:
-        x_qkv, x_qkv2, x_intermediates = x_block.pre_attention_x(x, c)
+        x_qkv, x_qkv2, x_intermediates = x_block.pre_attention_x(x, c, residual_gradient_flow=residual_gradient_flow)
     else:
-        x_qkv, x_intermediates = x_block.pre_attention(x, c)
+        x_qkv, x_intermediates = x_block.pre_attention(x, c, residual_gradient_flow=residual_gradient_flow)
 
     q, k, v = tuple(
         torch.cat(tuple(qkv[i] for qkv in [context_qkv, x_qkv]), dim=1)
@@ -608,16 +622,16 @@ def block_mixing(context, x, context_block, x_block, c):
     )
 
     if not context_block.pre_only:
-        context = context_block.post_attention(context_attn, *context_intermediates)
+        context = context_block.post_attention(context_attn, *context_intermediates, residual_gradient_flow=residual_gradient_flow)
     else:
         context = None
 
     if x_block.x_block_self_attn:
         x_q2, x_k2, x_v2 = x_qkv2
         attn2 = attention(x_q2, x_k2, x_v2, x_block.attn2.num_heads)
-        x = x_block.post_attention_x(x_attn, attn2, *x_intermediates)
+        x = x_block.post_attention_x(x_attn, attn2, *x_intermediates, residual_gradient_flow=residual_gradient_flow)
     else:
-        x = x_block.post_attention(x_attn, *x_intermediates)
+        x = x_block.post_attention(x_attn, *x_intermediates, residual_gradient_flow=residual_gradient_flow)
 
     return context, x
 
@@ -859,6 +873,7 @@ class MMDiTX(nn.Module):
         context: Optional[torch.Tensor] = None,
         skip_layers: Optional[List] = [],
         controlnet_hidden_states: Optional[torch.Tensor] = None,
+        resgate_layers_allowed = '*',
     ) -> torch.Tensor:
         if self.register_length > 0:
             context = torch.cat(
@@ -874,7 +889,8 @@ class MMDiTX(nn.Module):
         for i, block in enumerate(self.joint_blocks):
             if i in skip_layers:
                 continue
-            context, x = block(context, x, c=c_mod)
+            residual_gradient_flow = (resgate_layers_allowed == '*') or (i in resgate_layers_allowed)
+            context, x = block(context, x, c=c_mod, residual_gradient_flow=residual_gradient_flow)
             if controlnet_hidden_states is not None:
                 controlnet_block_interval = len(self.joint_blocks) // len(
                     controlnet_hidden_states
@@ -892,6 +908,7 @@ class MMDiTX(nn.Module):
         context: Optional[torch.Tensor] = None,
         controlnet_hidden_states: Optional[torch.Tensor] = None,
         skip_layers: Optional[List] = [],
+        resgate_layers_allowed = '*',
     ) -> torch.Tensor:
         """
         Forward pass of DiT.
@@ -908,7 +925,7 @@ class MMDiTX(nn.Module):
 
         context = self.context_embedder(context)
 
-        x = self.forward_core_with_concat(x, c, context, skip_layers, controlnet_hidden_states)
+        x = self.forward_core_with_concat(x, c, context, skip_layers, controlnet_hidden_states, resgate_layers_allowed=resgate_layers_allowed)
 
         x = self.unpatchify(x, hw=hw)  # (N, out_channels, H, W)
         return x

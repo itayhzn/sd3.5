@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     # for head in range(24):
     #         args.experiment_settings.append(f"-.h{head}.*")
-    args.experiment_settings = [ f"-.h*.Lskip1.Lresgate*.*" ]
+    args.experiment_settings = [ f"-.h*.Lskip-.Lresgate*.*", f"-.h*.Lskip-.Lresgate1.*" ]
 
     # flush output
     print(args.experiment_settings, flush=True)

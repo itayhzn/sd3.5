@@ -199,7 +199,7 @@ class BaseModel(torch.nn.Module):
                 dtype=dtype,
             )
 
-    def apply_model(self, x, sigma, c_crossattn=None, y=None, skip_layers=[], controlnet_cond=None):
+    def apply_model(self, x, sigma, c_crossattn=None, y=None, skip_layers=[], controlnet_cond=None, resgate_layers_allowed='*'):
         dtype = self.get_dtype()
         timestep = self.model_sampling.timestep(sigma).float()
         controlnet_hidden_states = None
@@ -225,6 +225,7 @@ class BaseModel(torch.nn.Module):
             y=y.to(dtype),
             controlnet_hidden_states=controlnet_hidden_states,
             skip_layers=skip_layers,
+            resgate_layers_allowed=resgate_layers_allowed,
         ).float()
         return self.model_sampling.calculate_denoised(sigma, model_output, x)
 
@@ -316,6 +317,7 @@ class CFGDenoiser(torch.nn.Module):
                 c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
                 y=torch.cat([cond["y"], uncond["y"]]),
                 skip_layers=skip_layers,
+                resgate_layers_allowed=layers_allowed,
                 **kwargs,
             )
             pos_out, neg_out = batched.chunk(2)
