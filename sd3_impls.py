@@ -337,6 +337,7 @@ class CFGDenoiser(torch.nn.Module):
 
             print(f"Saving tensors at timestep {current_timestep}")
             save_tensors(save_tensors_path, {
+                f"x_t={current_timestep}": x_leaf.detach().cpu(),
                 f"x_grad_t={current_timestep}": g,
             })
 
