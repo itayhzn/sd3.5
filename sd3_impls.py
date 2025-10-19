@@ -332,7 +332,7 @@ class CFGDenoiser(torch.nn.Module):
             loss.backward()
 
             g = x_leaf.grad[0].detach().cpu()
-            g = g.max(dim=0).values
+            # g = g.max(dim=0).values
             current_timestep = f"{int(timestep[0].item()*1000):04d}"
 
             print(f"Saving tensors at timestep {current_timestep}")
