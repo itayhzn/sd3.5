@@ -196,83 +196,6 @@ class CFGDenoiser(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def run_experiment(self,
-        x,
-        timestep,
-        cond,
-        uncond,
-        cond_scale,
-        save_tensors_path=None,
-        experiment_setting="", 
-        **kwargs,):
-        if experiment_setting == "":
-            experiment_setting = '-.*'  # default: saliency for all tokens, both branches
-            
-        pattern = re.compile(r'^(?P<mask_type>-|m-?\d+)\.(?P<branch>[\+\-\*])$')
-        experiment_setting = pattern.match(experiment_setting.strip())
-        if experiment_setting is not None:
-            mask_type = experiment_setting.group('mask_type')
-            branch = experiment_setting.group('branch')
-
-            # Saliency path: take gradient w.r.t. x to measure CFG influence
-            x_leaf = x.detach().clone().requires_grad_(True)
-            timestep = timestep.detach().clone()
-            cond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in cond.items() }
-            uncond = {k: (v.detach().clone() if isinstance(v, torch.Tensor) else v) for k, v in uncond.items() }
-
-            # Freeze model parameters
-            for param in self.model.parameters():
-                param.requires_grad = False
-
-            if mask_type.startswith("m"):
-                token = int(mask_type[1:])
-                token = token if token >= 0 else -1 * token  # abs(token)
-
-                if mask_type[1] == "-": # mask everything but token
-                    cond["c_crossattn"][:, :token, :] = 0.0
-                    cond["c_crossattn"][:, token+1:, :] = 0.0
-                else: # mask only token
-                    cond["c_crossattn"][:, token, :] = 0.0
-            
-            with torch.enable_grad():
-                
-                batched = self.model.apply_model(
-                    torch.cat([x_leaf, x_leaf]),
-                    torch.cat([timestep, timestep]),
-                    c_crossattn=torch.cat([cond["c_crossattn"], uncond["c_crossattn"]]),
-                    y=torch.cat([cond["y"], uncond["y"]]),
-                    **kwargs,
-                )
-                pos_out, neg_out = batched.chunk(2)
-                
-                if branch == "+":
-                    neg_out = neg_out.detach() # No saliency for uncond branch
-                elif branch == "-":
-                    pos_out = pos_out.detach() # No saliency for cond branch
-                else: # branch == "*":
-                    pass # Saliency for both branches
-                
-                # Scalar objective: magnitude of cond-uncond disagreement
-                loss = F.mse_loss(pos_out, neg_out, reduction='mean')
-                loss.backward()
-
-                # Per-pixel saliency: ||∂L/∂x|| over channels
-                g = x_leaf.grad[0].detach().cpu()  # [C,H,W]
-                g = g.max(dim=0).values  # [H,W]
-                current_timestep = f'{int(timestep[0].item()*1000):04d}'
-
-                print(f'Saving tensors at timestep {current_timestep}')
-                save_tensors(save_tensors_path, {
-                    # f"x_t={current_timestep}": x_leaf[0].detach().cpu(),
-                    # f"pos_out_t={current_timestep}": pos_out[0].detach().cpu(),
-                    # f"neg_out_t={current_timestep}": neg_out[0].detach().cpu(),
-                    f"x_grad_t={current_timestep}": g,
-                })
-
-            del x_leaf, timestep
-            del cond["c_crossattn"], uncond["c_crossattn"], cond['y'], uncond['y']
-            del g, loss, pos_out, neg_out, batched
-
     def forward(
         self,
         x,
@@ -281,7 +204,6 @@ class CFGDenoiser(torch.nn.Module):
         uncond,
         cond_scale,
         save_tensors_path=None,
-        experiment_setting="", 
         **kwargs,
     ):
         batched = self.model.apply_model(
@@ -294,8 +216,6 @@ class CFGDenoiser(torch.nn.Module):
         # Then split and apply CFG Scaling
         pos_out, neg_out = batched.chunk(2)
         scaled = neg_out + (pos_out - neg_out) * cond_scale
-
-        self.run_experiment(x, timestep, cond, uncond, cond_scale, save_tensors_path, experiment_setting, **kwargs)
 
         return scaled
 
@@ -417,11 +337,16 @@ def to_d(x, sigma, denoised):
 
 @torch.no_grad()
 @torch.autocast("cuda", dtype=torch.float16)
-def sample_euler(model, x, sigmas, extra_args=None):
+def sample_euler(model, x, sigmas, save_tensors_path=None, extra_args=None):
     """Implements Algorithm 2 (Euler steps) from Karras et al. (2022)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     for i in tqdm(range(len(sigmas) - 1)):
+        if save_tensors_path is not None:
+            tensors_dict = {
+                f"x_t={i}": x,
+            }
+            save_tensors(save_tensors_path, tensors_dict)
         sigma_hat = sigmas[i]
         denoised = model(x, sigma_hat * s_in, **extra_args)
         d = to_d(x, sigma_hat, denoised)
@@ -433,7 +358,7 @@ def sample_euler(model, x, sigmas, extra_args=None):
 
 @torch.no_grad()
 @torch.autocast("cuda", dtype=torch.float16)
-def sample_dpmpp_2m(model, x, sigmas, extra_args=None):
+def sample_dpmpp_2m(model, x, sigmas, save_tensors_path=None, extra_args=None):
     """DPM-Solver++(2M)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -441,6 +366,11 @@ def sample_dpmpp_2m(model, x, sigmas, extra_args=None):
     t_fn = lambda sigma: sigma.log().neg()
     old_denoised = None
     for i in tqdm(range(len(sigmas) - 1)):
+        if save_tensors_path is not None:
+            tensors_dict = {
+                f"x_t={i}": x,
+            }
+            save_tensors(save_tensors_path, tensors_dict)
         denoised = model(x, sigmas[i] * s_in, **extra_args)
         t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
         h = t_next - t

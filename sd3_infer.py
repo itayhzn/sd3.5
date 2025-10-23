@@ -377,12 +377,11 @@ class SD3Inferencer:
             if skip_layer_config.get("scale", 0) > 0
             else CFGDenoiser
         )
-        print(f"skip_layer_config.get('scale', 0) is {skip_layer_config.get('scale', 0)}")
-        print(f"Using denoiser: {denoiser.__class__.__name__}")
         latent = sample_fn(
             denoiser(self.sd3.model, steps, skip_layer_config),
             noise_scaled,
             sigmas,
+            save_tensors_path=save_tensors_path,
             extra_args=extra_args,
         )
         latent = SD3LatentFormat().process_out(latent)
@@ -669,15 +668,4 @@ def main(
 
 
 if __name__ == "__main__":
-    # datetime_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # # redirect output to a file
-    # with open(f"jobs-out-err/{datetime_str}.out", "w") as f:
-    #     os.dup2(f.fileno(), 1)
-    # # redirect error output to a file
-    # with open(f"jobs-out-err/{datetime_str}.err", "w") as f:
-    #     os.dup2(f.fileno(), 2)
-    
-    # os.system('nvidia-smi')
-
     fire.Fire(main)

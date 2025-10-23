@@ -22,8 +22,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '--experiment_settings',
         type=str,
-        default=['-.*'],
-        help='The experiment settings to use. -1: no saliency computation',)
+        default=[''],
+        help='The experiment settings to use.',)
     parser.add_argument(
         "--prompts",
         type=str,
@@ -50,22 +50,8 @@ if __name__ == "__main__":
     
     os.system('nvidia-smi')
 
-    if len(args.experiment_settings) == 0:
-        args.experiment_settings = [""]  # default setting
-    elif len(args.experiment_settings) == 1 and args.experiment_settings[0] == "all":
-        args.prompts = ['A white cat playing with a red ball.']
-        args.seeds = [23]
-        args.experiment_settings = []
-        for i in ["-",2,7,1,6,3,0,4,5,9]:
-            for branch in ["*", "+", "-"]:
-                if i == '-':
-                    args.experiment_settings.append(f"-.{branch}")
-                    continue
-                for sign in ["", "-"]:
-                    args.experiment_settings.append(f"m{sign}{i}.{branch}")
-
-    # flush output
-    print("", flush=True)
+    args.prompts = read_file("pqpp_prompts.txt")
+    args.seeds = [11,22,33,44,55,66,77,88,99]
 
     for prompt in args.prompts:
         for seed in args.seeds:

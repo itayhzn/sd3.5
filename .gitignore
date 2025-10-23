@@ -170,3 +170,4 @@ cython_debug/
 *.out.*
 *.pt
 dataset_images/
+visualizations/
