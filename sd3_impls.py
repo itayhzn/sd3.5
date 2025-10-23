@@ -206,6 +206,11 @@ class CFGDenoiser(torch.nn.Module):
         save_tensors_path=None,
         **kwargs,
     ):
+        if save_tensors_path is not None:
+            tensors_dict = {
+                f"x_t={int(1000*timestep):04d}": x,
+            }
+            save_tensors(save_tensors_path, tensors_dict)
         batched = self.model.apply_model(
             torch.cat([x, x]),
             torch.cat([timestep, timestep]),
@@ -342,11 +347,6 @@ def sample_euler(model, x, sigmas, save_tensors_path=None, extra_args=None):
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     for i in tqdm(range(len(sigmas) - 1)):
-        if save_tensors_path is not None:
-            tensors_dict = {
-                f"x_t={i}": x,
-            }
-            save_tensors(save_tensors_path, tensors_dict)
         sigma_hat = sigmas[i]
         denoised = model(x, sigma_hat * s_in, **extra_args)
         d = to_d(x, sigma_hat, denoised)
@@ -366,11 +366,6 @@ def sample_dpmpp_2m(model, x, sigmas, save_tensors_path=None, extra_args=None):
     t_fn = lambda sigma: sigma.log().neg()
     old_denoised = None
     for i in tqdm(range(len(sigmas) - 1)):
-        if save_tensors_path is not None:
-            tensors_dict = {
-                f"x_t={i}": x,
-            }
-            save_tensors(save_tensors_path, tensors_dict)
         denoised = model(x, sigmas[i] * s_in, **extra_args)
         t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
         h = t_next - t
