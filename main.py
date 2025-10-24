@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 import argparse
+import random
 
 def read_file(file_path):
     """
@@ -23,14 +24,29 @@ if __name__ == "__main__":
         "--prompts",
         type=str,
         nargs="*",
-        default=(read_file("videojam_prompts.txt")+read_file("sd_prompts.txt")),
+        default=read_file("pqpp_prompts.txt"),
         help="The text prompts to generate images or videos from",)
+    parser.add_argument(
+        "--prompts_fraction_start",
+        type=int,
+        default=0,
+        help="The fraction of prompts to start with (0-1)",)
+    parser.add_argument(
+        "--prompts_fraction_end",
+        type=int,
+        default=1,
+        help="The fraction of prompts to end with (0-1)",)
     parser.add_argument(
         "--seeds",
         type=int,
         nargs="*",
-        default=[23],
+        default=[],
         help="The random seeds to use for generation",)
+    parser.add_argument(
+        "--num_random_seeds_per_prompt",
+        type=int,
+        default=1,
+        help="The number of images to generate for each prompt. If seeds is given, this will be ignored.",)
     
     args = parser.parse_args()
 
@@ -45,10 +61,15 @@ if __name__ == "__main__":
     
     os.system('nvidia-smi')
 
-    args.prompts = read_file("pqpp_prompts.txt")
-    args.seeds = [11,22,33,44,55,66,77,88,99]
+    args.prompts = args.prompts[
+        int(len(args.prompts) * args.prompts_fraction_start) : int(
+            len(args.prompts) * args.prompts_fraction_end
+        )
+    ]
 
     for prompt in args.prompts:
+        if args.seeds == [] and args.num_random_seeds_per_prompt > 0:
+            args.seeds = random.sample(range(0, 10000), args.num_random_seeds_per_prompt)
         for seed in args.seeds:
             command = f"""conda run -n myenv python3 ./sd3_infer.py --prompt \"{prompt}\" --seed {seed} --verbose"""
 
