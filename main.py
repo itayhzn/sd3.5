@@ -28,13 +28,13 @@ if __name__ == "__main__":
         help="The text prompts to generate images or videos from",)
     parser.add_argument(
         "--prompts_fraction_start",
-        type=int,
-        default=0,
+        type=float,
+        default=0.0,
         help="The fraction of prompts to start with (0-1)",)
     parser.add_argument(
         "--prompts_fraction_end",
-        type=int,
-        default=1,
+        type=float,
+        default=1.0,
         help="The fraction of prompts to end with (0-1)",)
     parser.add_argument(
         "--seeds",
