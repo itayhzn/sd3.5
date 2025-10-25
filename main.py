@@ -20,11 +20,6 @@ if __name__ == "__main__":
         default=None,
         help="The name of the experiment to run",)
     parser.add_argument(
-        '--experiment_settings',
-        type=str,
-        default=[''],
-        help='The experiment settings to use.',)
-    parser.add_argument(
         "--prompts",
         type=str,
         nargs="*",
@@ -55,17 +50,14 @@ if __name__ == "__main__":
 
     for prompt in args.prompts:
         for seed in args.seeds:
-            for experiment_setting in args.experiment_settings:
-                command = f"""conda run -n myenv python3 ./sd3_infer.py --prompt \"{prompt}\" --seed {seed} --verbose"""
+            command = f"""conda run -n myenv python3 ./sd3_infer.py --prompt \"{prompt}\" --seed {seed} --verbose"""
 
-                if args.experiment_name is not None:
-                    command += f' --experiment_name "{args.experiment_name}"'
-                if experiment_setting != "":
-                    command += f' --experiment_setting "{experiment_setting}"'
-                
-                print("\nRunning command:", command)
-                status_code = os.system(command)
+            if args.experiment_name is not None:
+                command += f' --experiment_name "{args.experiment_name}"'
+            
+            print("\nRunning command:", command)
+            status_code = os.system(command)
 
-                if status_code != 0:
-                    print("\tCommand:\n\t", command, "\nfailed with status code", status_code)
-                    continue
+            if status_code != 0:
+                print("\tCommand:\n\t", command, "\nfailed with status code", status_code)
+                continue
