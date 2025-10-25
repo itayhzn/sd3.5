@@ -171,3 +171,4 @@ cython_debug/
 *.pt
 dataset_images/
 visualizations/
+jobs-out-err/
