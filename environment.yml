@@ -1,0 +1,58 @@
+name: myenv
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - tqdm
+  - imageio
+  - easydict
+  - ftfy
+  - imageio-ffmpeg
+  - numpy>=1.23.5,<2
+  - setuptools
+  - pip
+  - pip:
+      - --index-url https://download.pytorch.org/whl/cu126
+      - --extra-index-url https://pypi.org/simple
+      - torch==2.6.0
+      - torchvision>=0.21.0
+      - opencv-python>=4.10.0.84
+      - diffusers>=0.31.0
+      - transformers>=4.49.0
+      - tokenizers>=0.20.3
+      - accelerate>=1.1.1
+      - dashscope
+      - gradio>=5.0.0
+      - timm
+      - einops==0.8.0
+      - wandb
+      - h5py
+      - scipy==1.10.1
+      - pycocotools==2.0.7
+      - imgaug==0.4.0
+      - fvcore
+      - pandas==2.0.3
+      - spacy>=3.7.2
+      - hydra-core==1.3.2
+      - bitarray
+      - py3_wget
+      - sacrebleu
+      - scikit-learn
+      - gdown
+      - moviepy
+      - matplotlib
+      - seaborn
+      - ipywidgets
+      - jupyterlab
+      - safetensors
+      - sentencepiece
+      - huggingface-hub
+      - fire >= 0.6.0
+      - protobuf
+      - requests
+      - invisible-watermark
+      - ruff == 0.6.8
+      - pillow
+      - webdataset
