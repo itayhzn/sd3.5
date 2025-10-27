@@ -1,16 +1,16 @@
 # reinforce.py
 # Per-timestep, single-intervention REINFORCE for SD3.5
-# Implements both 'latent_delta' and 'basis_delta' nudges with a learned policy per step t.
+# Batch over prompts + seeds; supports both 'latent_delta' and 'basis_delta'.
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional, Sequence, Tuple
+from typing import Callable, Dict, Optional, Sequence, Tuple, List, Mapping
 import math
 import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
-import sd3_impls as _sd3
+import sd3_impls as _sd3  # must expose CFGDenoiser(model)
 
 # ------------------ utils ------------------
 
@@ -55,8 +55,7 @@ class StateBuilder:
       - latent stats (6): mean, std, |.|_mean, L2/√N, min, max
       - t_frac embedding (16)
       - cfg_scale, t_frac (2)
-      - last action summary (2): ||a||, sign-mean (optional; zeros for single-action runs)
-    -> ~26 dims, padded to state_dim.
+    -> padded/truncated to state_dim.
     """
     def __init__(self, state_dim: int = 128, t_emb_dim: int = 16, device: str = "cuda"):
         self.state_dim = state_dim
@@ -85,16 +84,16 @@ class StateBuilder:
 
 class StepPolicy(nn.Module):
     """
-    A tiny Gaussian policy head for ONE timestep t.
+    Tiny Gaussian policy head for ONE timestep t.
     Modes:
-      - 'latent_delta' : action a ∈ R^D (D flattened latent)
+      - 'latent_delta' : action a ∈ R^D (D=flattened latent)
       - 'basis_delta'  : action u ∈ R^k, delta z = B @ u
     """
     def __init__(
         self,
         mode: str,
         state_dim: int,
-        action_dim: int,          # k for basis; ignored for latent until we know D
+        action_dim: int,          # k for basis; placeholder for latent (resized later)
         init_log_std: float = -1.0,
         alpha: float = 0.02,
         device: str = "cuda",
@@ -105,7 +104,7 @@ class StepPolicy(nn.Module):
         self.alpha = alpha
         self.device = device
 
-        self.actor = TinyMLP(state_dim, 2*action_dim).to(device)  # resized later for latent_delta
+        self.actor = TinyMLP(state_dim, 2*action_dim).to(device)  # last layer resized for latent_delta
         with torch.no_grad():
             last = [m for m in self.actor.modules() if isinstance(m, nn.Linear)][-1]
             A = last.out_features // 2
@@ -113,7 +112,6 @@ class StepPolicy(nn.Module):
 
         self.critic = TinyMLP(state_dim, 1).to(device)
 
-        # will be set when we see the first latent
         self.latent_dim: Optional[int] = None
         self.basis: Optional[torch.Tensor] = None
 
@@ -144,12 +142,12 @@ class StepPolicy(nn.Module):
     def value(self, state: torch.Tensor) -> torch.Tensor:
         return self.critic(state).squeeze(-1)
 
-# ------------------ policy bank (exposes get_policy) ------------------
+# ------------------ policy bank ------------------
 
-class PolicyBank:
+class PolicyBank(nn.Module):
     """
-    Holds an independent StepPolicy (+critic) for each timestep t.
-    This gives you the conceptual get_policy(latent_t, t).
+    Independent StepPolicy (+critic) for each t.
+    Exposes `get_policy(latent_t, t, T, cfg)` and `apply_action(...)`.
     """
     def __init__(
         self,
@@ -159,30 +157,28 @@ class PolicyBank:
         alpha: float = 0.02,
         device: str = "cuda",
     ):
+        super().__init__()
         self.mode = mode
         self.state_dim = state_dim
         self.action_dim_basis = action_dim_basis
         self.alpha = alpha
         self.device = device
-        self.bank: Dict[int, StepPolicy] = {}
+        self.bank: nn.ModuleDict = nn.ModuleDict()  # store as modules for .parameters()
         self.state_builder = StateBuilder(state_dim=state_dim, device=device)
 
     def policy(self, t: int) -> StepPolicy:
-        if t not in self.bank:
-            self.bank[t] = StepPolicy(
+        key = str(int(t))
+        if key not in self.bank:
+            self.bank[key] = StepPolicy(
                 mode=self.mode,
                 state_dim=self.state_dim,
-                action_dim=(self.action_dim_basis if self.mode == "basis_delta" else 2),  # temp; resized later
+                action_dim=(self.action_dim_basis if self.mode == "basis_delta" else 2),
                 alpha=self.alpha,
                 device=self.device,
             )
-        return self.bank[t]
+        return self.bank[key]
 
     def get_policy(self, latent_t: torch.Tensor, t: int, T: int, cfg_scale: float):
-        """
-        Returns callable (action, logp, value, state) for this t.
-        This matches your desired interface conceptually.
-        """
         pol = self.policy(t)
         pol.ensure_shapes(latent_t, action_dim_basis=self.action_dim_basis)
         s_t = self.state_builder.build(latent_t, t, T, cfg_scale).to(self.device)
@@ -200,37 +196,23 @@ class PolicyBank:
         delta = normalize(delta) * pol.alpha
         return latent + delta
 
-    def parameters(self):
-        # collect all actor+critic params
-        params = []
-        for p in self.bank.values():
-            params += list(p.actor.parameters()) + list(p.critic.parameters())
-        return params
-    
-    def load_weights(self, ckpt_path):
-        ckpt = torch.load(ckpt_path, map_location="cpu")
-        self.schedule = ckpt.get("schedule", None)
-        self.load_state_dict(ckpt["policy_bank"])
-        print(f"Loaded weights from {ckpt_path}")
-
     def reset_policies(self, latent: torch.Tensor, schedule: Sequence[int]):
         for t in schedule:
             pol = self.policy(t)
             pol.ensure_shapes(latent, action_dim_basis=self.action_dim_basis)
 
-
-# ------------------ denoiser wrapper for a single step ------------------
+# ------------------ denoiser wrapper (single step) ------------------
 
 class SingleStepDenoiserWrapper:
     """
     Wraps CFGDenoiser so ONLY step t* applies a policy nudge to x.
-    Tracks calls via an internal counter (t_idx). Mirrors CFGDenoiser.forward signature.
+    Mirrors CFGDenoiser.forward signature.
     """
     def __init__(self, base_denoiser, bank: PolicyBank, target_t: int, cfg_scale: float, total_steps: int):
         self.base = base_denoiser
         self.bank = bank
-        self.t_star = target_t
-        self.cfg_scale = cfg_scale
+        self.t_star = int(target_t)
+        self.cfg_scale = float(cfg_scale)
         self.T = int(total_steps)
 
         # logging for RL update
@@ -243,28 +225,22 @@ class SingleStepDenoiserWrapper:
         self.t_idx = 0  # step counter
 
     def forward(self, x, timestep, cond, uncond, cond_scale, save_tensors_path=None, **kwargs):
-        # Apply action BEFORE the model call, at the chosen step
         if self.t_idx == self.t_star and not self.logged:
             a_t, logp_t, v_t, s_t = self.bank.get_policy(x, self.t_idx, self.T, self.cfg_scale)
             x = self.bank.apply_action(x, a_t, self.t_idx)
-
-            # log for learning
             self.logged = True
             self.logged_state = s_t
             self.logged_logp = logp_t
             self.logged_value = v_t
             self.logged_action = a_t
 
-        # Call the real denoiser
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
             save_tensors_path=save_tensors_path, **kwargs
         )
-
         self.t_idx += 1
         return out
 
-    # Allow being called like a function, just like a torch.nn.Module
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
@@ -272,54 +248,59 @@ class SingleStepDenoiserWrapper:
 
 @dataclass
 class TrainConfig:
-    schedule: Tuple[int, ...] = (10, 20, 35)  # which steps to train
-    num_epochs: int = 3                        # sweeps over all t
-    iters_per_t: int = 1                       # how many updates per t per epoch
+    # RL & logging
+    schedule: Tuple[int, ...] = (10, 20, 35)
+    num_epochs: int = 3
+    iters_per_t: int = 1
     lr: float = 3e-4
     value_coef: float = 0.5
-    entropy_coef: float = 0.0                  # set >0 if you add explicit entropy tracking
+    entropy_coef: float = 0.0
     max_grad_norm: float = 1.0
     save_every: int = 1
+    
     out_dir: str = "outputs/rl_per_timestep"
     resume_from: Optional[str] = None
 
+    # Batch prompts/seeds, resolution
+    prompts: Sequence[str] = ("a photo of a cat",)
+    seeds: Sequence[int] = (23,)
+    width: int = 1024
+    height: int = 1024
+
+    # model config
+    cfg_scale: float = 4.5
+    num_diffusion_steps: int = 40
+    shift: float = 3.0
+    model: str = "models/sd3.5_medium.safetensors"
+    model_folder: str = "models"
+    sampler: str = "dpmpp_2m"
+
 class SingleStepTrainer:
     """
-    Baseline: run once with NO intervention -> R_base.
-    For each t in schedule: wrap denoiser to act ONLY at t, run once, get R_t, update ONLY π_t, V_t.
-    Repeat over epochs (coordinate ascent over steps).
+    Baseline per epoch: compute baseline per prompt (no intervention).
+    For each t in union(schedule): run one rollout per prompt with an intervention at t,
+    accumulate losses across prompts, then do one optimizer step.
     """
-    def __init__(self, inferencer, prompt: str, width: int, height: int, steps: int, cfg: float, sampler: str, seed: int, device: str = "cuda"):
+    def __init__(self, inferencer, steps: int, cfg: float, sampler: str, device: str = "cuda"):
         self.inf = inferencer
-        self.prompt = prompt
-        self.width = width
-        self.height = height
         self.steps = steps
         self.cfg = cfg
         self.sampler = sampler
-        self.seed = seed
         self.device = device
 
-        self.cond = self.inf.get_cond(prompt)
+        # cache negative conditioning once
         self.neg_cond = self.inf.get_cond("")
-        with torch.no_grad():
-            self.z0 = self.inf.get_empty_latent(1, width, height, seed, device="cuda")
 
     @torch.no_grad()
-    def _run_once(self, wrapper=None, tag=None, save_dir=None) -> Image.Image:
-        # Prepare inputs
-        latent = self.z0.clone().to("cuda")
-        cond = self.inf.fix_cond(self.cond)
-        ncond = self.inf.fix_cond(self.neg_cond)
+    def _run_once_prompt(self, prompt: str, seed: int, width: int, height: int, wrapper=None, tag=None, save_dir=None) -> Image.Image:
+        latent = self.inf.get_empty_latent(1, width, height, seed, device="cuda")
+        cond = self.inf.get_cond(prompt)      # tuple; do_sampling will fix_cond()
+        ncond = self.neg_cond
 
-        
         original_cfg = _sd3.CFGDenoiser
-
         if wrapper is None:
-            # vanilla
             pass
         else:
-            # monkey-patch
             def _fake_cfg(*args, **kwargs):
                 return wrapper
             _sd3.CFGDenoiser = _fake_cfg
@@ -327,7 +308,7 @@ class SingleStepTrainer:
         try:
             sampled_latent = self.inf.do_sampling(
                 latent=latent,
-                seed=self.seed,
+                seed=seed,
                 conditioning=cond,
                 neg_cond=ncond,
                 steps=self.steps,
@@ -337,6 +318,7 @@ class SingleStepTrainer:
                 denoise=1.0,
                 skip_layer_config={},
                 save_tensors_path=None,
+                experiment_setting="rl_single_step_batch",
             )
         finally:
             _sd3.CFGDenoiser = original_cfg
@@ -347,90 +329,102 @@ class SingleStepTrainer:
             img.save(os.path.join(save_dir, f"{tag}.png"))
         return img
 
-    def train(self, bank: PolicyBank, reward_fn: Callable[[Image.Image], float], cfg: TrainConfig):
-        # One optimizer over all per-t heads:
-        if cfg.resume_from is not None:
-            bank.load_weights(cfg.resume_from)
-            print(f"Resumed training from {cfg.resume_from}")
-        else:
-            bank.reset_policies(self.z0, cfg.schedule)
-            print(f"Reset policies for new training")
+    def train(
+        self,
+        bank: PolicyBank,
+        reward_fn: Callable[[str, Image.Image], float],   # (prompt, image) -> float
+        conf: TrainConfig
+    ):
+        prompts: List[str] = list(conf.prompts)
+        seeds:   List[int] = list(conf.seeds)
+        
+        P = len(prompts)
+        S = len(seeds)
 
-        opt = torch.optim.AdamW(bank.parameters(), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=1e-4)
+        # Materialize policies for union of steps, size against a latent of the target resolution
+        union_steps = sorted({int(t) for t in conf.schedule})
+        with torch.no_grad():
+            # create a dummy latent of the correct shape for sizing/basis
+            z0 = self.inf.get_empty_latent(1, conf.width, conf.height, seeds[0], device="cuda")
+        bank.reset_policies(z0, union_steps)
 
-        for epoch in range(1, cfg.num_epochs + 1):
-            # 1) Baseline (no intervention)
-            img_base = self._run_once(wrapper=None, tag=f"epoch{epoch:02d}_base", save_dir=(cfg.out_dir if (epoch % cfg.save_every)==0 else None))
-            R_base = float(reward_fn(img_base))
+        # Optimizer over all policies/critics
+        opt = torch.optim.AdamW(bank.parameters(), lr=conf.lr, betas=(0.9, 0.999), weight_decay=1e-4)
 
-            for t in cfg.schedule:
-                for _ in range(cfg.iters_per_t):
-                    # 2) Single-step intervention at t
-                    from sd3_impls import CFGDenoiser
-                    base = CFGDenoiser(self.inf.sd3.model)  # constructor only needs model in your impl
-                    wrapper = SingleStepDenoiserWrapper(
-                        base_denoiser=base,
-                        bank=bank,
-                        target_t=t,
-                        cfg_scale=self.cfg,
-                        total_steps=self.steps,   # <— important now
-                    )
-                    img_t = self._run_once(wrapper=wrapper, tag=f"epoch{epoch:02d}_t{t:03d}", save_dir=(cfg.out_dir if (epoch % cfg.save_every)==0 else None))
-                    R_t = float(reward_fn(img_t))
+        # Optionally resume (weights only)
+        if conf.resume_from is not None and os.path.exists(conf.resume_from):
+            state = torch.load(conf.resume_from, map_location="cpu")
+            bank.load_state_dict(state["policy_bank"])
+            print(f"Resumed policy_bank from {conf.resume_from}")
 
-                    # 3) If action didn’t fire (shouldn’t happen), skip
-                    if wrapper.logged_state is None:
-                        continue
+        for epoch in range(1, conf.num_epochs + 1):
+            # 1) Baselines per prompt
+            R_base: List[float] = [0.0] * (P * S)
+            for i, pr in enumerate(prompts):
+                for j, sd in enumerate(seeds):
+                    idx = i * S + j
+                    save_dir = (conf.out_dir if (epoch % conf.save_every) == 0 else None)
+                    tag = f"epoch{epoch:02d}_base_p{i:02d}_s{j:02d}"
+                    img_base = self._run_once_prompt(prompt=pr, seed=sd, width=conf.width, height=conf.height,
+                                                    wrapper=None, tag=tag, save_dir=save_dir)
+                    R_base[idx] = float(reward_fn(pr, img_base))
 
-                    s_t = wrapper.logged_state.detach()
-                    logp_t = wrapper.logged_logp
-                    V_t = wrapper.logged_value
-                    # Advantage: use strong control variate
-                    A_t = torch.tensor([R_t - R_base], device=bank.device, dtype=torch.float32) - V_t.detach()
+            # 2) Train each step on the batch of prompts
+            for t in union_steps:
+                opt.zero_grad(set_to_none=True)
+                total_policy_loss = 0.0
+                total_value_loss  = 0.0
+                n_contrib = 0
 
-                    policy_loss = -(A_t * logp_t).mean()
-                    value_loss = cfg.value_coef * ( (R_t - R_base) - V_t ).pow(2).mean()
-                    loss = policy_loss + value_loss
+                for i, pr in enumerate(prompts):
+                    for j, sd in enumerate(seeds):
+                        # build base denoiser + wrapper that intervenes at this t
+                        base = _sd3.CFGDenoiser(self.inf.sd3.model)
+                        wrapper = SingleStepDenoiserWrapper(
+                            base_denoiser=base,
+                            bank=bank,
+                            target_t=t,
+                            cfg_scale=self.cfg,
+                            total_steps=self.steps,
+                        )
 
-                    opt.zero_grad(set_to_none=True)
+                        # rollout 1x with intervention at t
+                        save_dir = (conf.out_dir if (epoch % conf.save_every) == 0 else None)
+                        tag = f"epoch{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}"
+                        img_t = self._run_once_prompt(prompt=pr, seed=sd, width=conf.width, height=conf.height,
+                                                    wrapper=wrapper, tag=tag, save_dir=save_dir)
+                        R_t = float(reward_fn(pr, img_t))
+
+                        # If wrapper didn't fire (shouldn't), skip
+                        if wrapper.logged_state is None:
+                            continue
+
+                        V_t = wrapper.logged_value
+                        logp_t = wrapper.logged_logp
+
+                        # Advantage with strong baseline per prompt
+                        idx = i * S + j
+                        A_hat = torch.tensor([R_t - R_base[idx]], device=bank.device, dtype=torch.float32) - V_t.detach()
+                        policy_loss = -(A_hat * logp_t).mean()
+                        value_loss  = conf.value_coef * ((R_t - R_base[idx]) - V_t).pow(2).mean()
+
+                        total_policy_loss = total_policy_loss + policy_loss
+                        total_value_loss  = total_value_loss  + value_loss
+                        n_contrib += 1
+
+                if n_contrib > 0:
+                    loss = (total_policy_loss + total_value_loss) / n_contrib
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
+                    torch.nn.utils.clip_grad_norm_(bank.parameters(), conf.max_grad_norm)
                     opt.step()
 
-            print(f"[epoch {epoch}/{cfg.num_epochs}] R_base={R_base:.4f}")
+            print(f"[epoch {epoch}/{conf.num_epochs}] baseline avg={sum(R_base)/len(R_base):.4f} (P={P})")
 
-            # Save checkpoint
-            if epoch % cfg.save_every == 0:
-                os.makedirs(cfg.out_dir, exist_ok=True)
-                ckpt_path = os.path.join(cfg.out_dir, f"policy_bank_epoch_{epoch:02d}.pt")
-                torch.save({
-                    "policy_bank": bank.state_dict(),
-                    "schedule": cfg.schedule,
-                    "epoch": epoch,
-                }, ckpt_path)
+            # Save checkpoint each save_every
+            if epoch % conf.save_every == 0:
+                os.makedirs(conf.out_dir, exist_ok=True)
+                ckpt_path = os.path.join(conf.out_dir, f"policy_bank_epoch_{epoch:02d}.pt")
+                torch.save({"policy_bank": bank.state_dict(), "schedule": conf.schedule, "epoch": epoch}, ckpt_path)
                 print(f"Saved checkpoint to {ckpt_path}")
 
         print("Training complete.")
-
-# ------------------ quick usage ------------------
-# After inferencer.load(...):
-#
-#   from reinforce import PolicyBank, SingleStepTrainer, TrainConfig
-#
-#   bank = PolicyBank(mode="basis_delta", action_dim_basis=64, alpha=0.02, device="cuda")
-#   trainer = SingleStepTrainer(
-#       inferencer=inferencer,
-#       prompt=PROMPT,
-#       width=WIDTH, height=HEIGHT,
-#       steps=_steps, cfg=_cfg, sampler=_sampler,
-#       seed=SEED, device="cuda"
-#   )
-#
-#   def reward_fn(img: Image.Image) -> float:
-#       return score_image(img)  # your black-box scorer
-#
-#   cfg = TrainConfig(schedule=(8, 12, 18, 24, 30), num_epochs=3, iters_per_t=2, save_every=1,
-#                     out_dir="outputs/rl_per_timestep")
-#   trainer.train(bank, reward_fn, cfg)
-#
-# You can also call: a_t, logp, V, s = bank.get_policy(latent_t, t, T, cfg_scale)
