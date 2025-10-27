@@ -367,6 +367,7 @@ class SingleStepTrainer:
                     img_base = self._run_once_prompt(prompt=pr, seed=sd, width=conf.width, height=conf.height,
                                                     wrapper=None, tag=tag, save_dir=save_dir)
                     R_base[idx] = float(reward_fn(pr, img_base))
+                    print(f"  [baseline] prompt {i}/{P} seed {j}/{S} reward={R_base[idx]:.4f}")
 
             # 2) Train each step on the batch of prompts
             for t in union_steps:
@@ -410,6 +411,8 @@ class SingleStepTrainer:
                         total_policy_loss = total_policy_loss + policy_loss
                         total_value_loss  = total_value_loss  + value_loss
                         n_contrib += 1
+
+                        print(f"  [epoch {epoch}/{conf.num_epochs} t {t}] prompt {i}/{P} seed {j}/{S} R_t={R_t:.4f} A_hat={A_hat.item():.4f} policy_loss={policy_loss.item():.4f} value_loss={value_loss.item():.4f}")
 
                 if n_contrib > 0:
                     loss = (total_policy_loss + total_value_loss) / n_contrib
