@@ -318,7 +318,6 @@ class SingleStepTrainer:
                 denoise=1.0,
                 skip_layer_config={},
                 save_tensors_path=None,
-                experiment_setting="rl_single_step_batch",
             )
         finally:
             _sd3.CFGDenoiser = original_cfg
