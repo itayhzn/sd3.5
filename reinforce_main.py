@@ -5,6 +5,7 @@ from PIL import Image
 from reinforce import PolicyBank, SingleStepTrainer, TrainConfig
 from mock_scorer import MockScorer
 from sd3_infer import SD3Inferencer  # adjust import to your file
+import torch
 
 # ---------- Config ----------
 # Note: Sigma shift value, publicly released models use 3.0
@@ -49,15 +50,16 @@ EPOCHS = 2
 if __name__ == "__main__":
     # ---------- Build inferencer ----------
     inf = SD3Inferencer()
-    inf.load(
-        model=MODEL,
-        vae=None,
-        shift=SHIFT,
-        controlnet_ckpt=None,
-        model_folder=MODEL_FOLDER,
-        text_encoder_device="cpu",
-        verbose=False,
-    )
+    with torch.no_grad():
+        inf.load(
+            model=MODEL,
+            vae=None,
+            shift=SHIFT,
+            controlnet_ckpt=None,
+            model_folder=MODEL_FOLDER,
+            text_encoder_device="cpu",
+            verbose=False,
+        )
 
     # ---------- RL objects ----------
     bank = PolicyBank(

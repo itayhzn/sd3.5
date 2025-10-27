@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+import sd3_impls as _sd3
 
 # ------------------ utils ------------------
 
@@ -298,7 +299,7 @@ class SingleStepTrainer:
         cond = self.inf.fix_cond(self.cond)
         ncond = self.inf.fix_cond(self.neg_cond)
 
-        import sd3_impls as _sd3
+        
         original_cfg = _sd3.CFGDenoiser
 
         if wrapper is None:
