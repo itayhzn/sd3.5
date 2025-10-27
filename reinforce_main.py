@@ -12,7 +12,7 @@ from sd3_infer import SD3Inferencer
 def main():
     # ---------- Train config ----------
     conf = TrainConfig(
-        schedule=(8, 20, 30),
+        schedule=(1, 2),
         num_epochs=2,
         iters_per_t=1,
         lr=3e-4,
@@ -25,9 +25,8 @@ def main():
         prompts=[
             "a studio photo of a ginger cat, soft light",
             "a cinematic photo of a vintage car at dusk",
-            "a close-up portrait, Rembrandt lighting",
         ],
-        seeds=[23, 42, 137],
+        seeds=[23, 42],
         width=1024,
         height=1024,
 
