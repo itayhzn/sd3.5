@@ -206,6 +206,18 @@ class PolicyBank:
         for p in self.bank.values():
             params += list(p.actor.parameters()) + list(p.critic.parameters())
         return params
+    
+    def load_weights(self, ckpt_path):
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+        self.schedule = ckpt.get("schedule", None)
+        self.load_state_dict(ckpt["policy_bank"])
+        print(f"Loaded weights from {ckpt_path}")
+
+    def reset_policies(self, latent: torch.Tensor, schedule: Sequence[int]):
+        for t in schedule:
+            pol = self.policy(t)
+            pol.ensure_shapes(latent, action_dim_basis=self.action_dim_basis)
+
 
 # ------------------ denoiser wrapper for a single step ------------------
 
@@ -269,6 +281,7 @@ class TrainConfig:
     max_grad_norm: float = 1.0
     save_every: int = 1
     out_dir: str = "outputs/rl_per_timestep"
+    resume_from: Optional[str] = None
 
 class SingleStepTrainer:
     """
@@ -337,6 +350,13 @@ class SingleStepTrainer:
 
     def train(self, bank: PolicyBank, reward_fn: Callable[[Image.Image], float], cfg: TrainConfig):
         # One optimizer over all per-t heads:
+        if cfg.resume_from is not None:
+            bank.load_weights(cfg.resume_from)
+            print(f"Resumed training from {cfg.resume_from}")
+        else:
+            bank.reset_policies(self.z0, cfg.schedule)
+            print(f"Reset policies for new training")
+
         opt = torch.optim.AdamW(bank.parameters(), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=1e-4)
 
         for epoch in range(1, cfg.num_epochs + 1):
@@ -379,6 +399,17 @@ class SingleStepTrainer:
                     opt.step()
 
             print(f"[epoch {epoch}/{cfg.num_epochs}] R_base={R_base:.4f}")
+
+            # Save checkpoint
+            if epoch % cfg.save_every == 0:
+                os.makedirs(cfg.out_dir, exist_ok=True)
+                ckpt_path = os.path.join(cfg.out_dir, f"policy_bank_epoch_{epoch:02d}.pt")
+                torch.save({
+                    "policy_bank": bank.state_dict(),
+                    "schedule": cfg.schedule,
+                    "epoch": epoch,
+                }, ckpt_path)
+                print(f"Saved checkpoint to {ckpt_path}")
 
         print("Training complete.")
 

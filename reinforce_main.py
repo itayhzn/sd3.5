@@ -92,6 +92,7 @@ if __name__ == "__main__":
         max_grad_norm=1.0,
         save_every=1,
         out_dir=OUTDIR,
+        resume_from=None,
     )
 
     # ---------- Run training ----------
