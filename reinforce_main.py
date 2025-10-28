@@ -15,7 +15,7 @@ def main():
         schedule=(0, ),
         num_epochs=100,
         iters_per_t=1,
-        lr=0.01,
+        lr=0.1,
         value_coef=0.5,
         max_grad_norm=1.0,
         save_every=1,
@@ -36,7 +36,10 @@ def main():
         model="models/sd3.5_medium.safetensors",
         model_folder="models",
         sampler="dpmpp_2m",
+        policy_mode='basis_delta',
 
+        # other
+        log_file='reinforce_batch.csv',
     )
 
     # ---------- Build inferencer ----------
@@ -52,9 +55,13 @@ def main():
             verbose=False,
         )
 
+    latent_dim = (16, 128, 128)
+    flat_latent_dim = latent_dim[0] * latent_dim[1] * latent_dim[2]
+
     # ---------- RL objects ----------
     bank = PolicyBank(
-        mode="basis_delta",   # 'basis_delta' is usually more stable than 'latent_delta'
+        mode=conf.policy_mode,   # 'basis_delta' is usually more stable than 'latent_delta'
+        state_dim=flat_latent_dim,
         action_dim_basis=64,
         alpha=0.02,
         device="cuda",

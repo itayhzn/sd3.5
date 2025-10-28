@@ -14,6 +14,17 @@ import sd3_impls as _sd3  # must expose CFGDenoiser(model)
 
 # ------------------ utils ------------------
 
+def logger(d: str, csv_file: str):
+    keys = sorted(d.keys())
+    msg = ",".join([str(d[k]) for k in keys])
+    if not os.path.exists(csv_file):
+        with open(csv_file, "w") as f:
+            f.write(",".join(keys) + "\n")
+            f.write(msg + "\n")
+    else:
+        with open(csv_file, "a") as f:
+            f.write(msg + "\n")
+
 def normalize(t: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return t / (t.norm(p=2) + eps)
 
@@ -65,19 +76,7 @@ class StateBuilder:
     def build(self, latent: torch.Tensor, t_idx: int, T: int, cfg_scale: float) -> torch.Tensor:
         z = latent
         with torch.no_grad():
-            stats = torch.stack([
-                z.mean(), z.std(), z.abs().mean(),
-                z.norm(p=2) / z.numel()**0.5,
-                z.min(), z.max(),
-            ]).to(self.device, dtype=torch.float32)
-            t_frac = float(t_idx) / max(1, T-1)
-            t_emb = sinusoidal_embed(t_frac, dim=self.t_emb_dim, device=self.device)
-            extra = torch.tensor([cfg_scale, t_frac], device=self.device, dtype=torch.float32)
-            s = torch.cat([stats, t_emb, extra], dim=0)
-        if s.numel() < self.state_dim:
-            s = F.pad(s, (0, self.state_dim - s.numel()))
-        else:
-            s = s[:self.state_dim]
+            s = latent.flatten() 
         return s  # (state_dim,)
 
 # ------------------ per-step policy & critic ------------------
@@ -184,6 +183,7 @@ class PolicyBank(nn.Module):
         s_t = self.state_builder.build(latent_t, t, T, cfg_scale).to(self.device)
         a_t, logp_t = pol.act(s_t)
         v_t = pol.value(s_t)
+        logger({"step": t, "a_t": a_t.norm().item(), "mean(a)": a_t.mean().item(), "std(a)": a_t.std().item(), "v_t": v_t.item(), "logp_t": logp_t.item()}, 'logs/get_policy_logs.csv')
         return a_t, logp_t, v_t, s_t
 
     def apply_action(self, latent: torch.Tensor, a: torch.Tensor, t: int) -> torch.Tensor:
@@ -367,8 +367,7 @@ class SingleStepTrainer:
                     img_base = self._run_once_prompt(prompt=pr, seed=sd, width=conf.width, height=conf.height,
                                                     wrapper=None, tag=tag, save_dir=save_dir)
                     R_base[idx] = float(reward_fn(pr, img_base))
-                    print(f"  [baseline] prompt {i}/{P} seed {j}/{S} reward={R_base[idx]:.4f}")
-
+                    
             # 2) Train each step on the batch of prompts
             for t in union_steps:
                 opt.zero_grad(set_to_none=True)
@@ -412,21 +411,20 @@ class SingleStepTrainer:
                         total_value_loss  = total_value_loss  + value_loss
                         n_contrib += 1
 
-                        print(f"  [epoch {epoch}/{conf.num_epochs} t {t}] prompt {i}/{P} seed {j}/{S} R_t={R_t:.4f} A_hat={A_hat.item():.4f} policy_loss={policy_loss.item():.4f} value_loss={value_loss.item():.4f}")
+                        logger({"epoch": epoch, "t": t, "prompt_idx": i, "seed_idx": j, "R_t": R_t, "R_base": R_base[idx], "A_hat": A_hat.item(), "policy_loss": policy_loss.item(), "value_loss": value_loss.item()}, 'logs/optimization_logs.csv')
 
                 if n_contrib > 0:
+                    logger({"epoch": epoch, "t": t, "total_policy_loss": total_policy_loss.item(), "total_value_loss": total_value_loss.item(), "n_contrib": n_contrib}, 'logs/epoch_step_logs.csv')
                     loss = (total_policy_loss + total_value_loss) / n_contrib
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(bank.parameters(), conf.max_grad_norm)
                     opt.step()
 
-            print(f"[epoch {epoch}/{conf.num_epochs}] baseline avg={sum(R_base)/len(R_base):.4f} (P={P})")
-
             # Save checkpoint each save_every
-            if epoch % conf.save_every == 0:
-                os.makedirs(conf.out_dir, exist_ok=True)
-                ckpt_path = os.path.join(conf.out_dir, f"policy_bank_epoch_{epoch:02d}.pt")
-                torch.save({"policy_bank": bank.state_dict(), "schedule": conf.schedule, "epoch": epoch}, ckpt_path)
-                print(f"Saved checkpoint to {ckpt_path}")
+            # if epoch % conf.save_every == 0:
+            #     os.makedirs(conf.out_dir, exist_ok=True)
+            #     ckpt_path = os.path.join(conf.out_dir, f"policy_bank_epoch_{epoch:02d}.pt")
+            #     torch.save({"policy_bank": bank.state_dict(), "schedule": conf.schedule, "epoch": epoch}, ckpt_path)
+            #     print(f"Saved checkpoint to {ckpt_path}")
 
         print("Training complete.")
