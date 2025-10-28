@@ -17,6 +17,9 @@ import sd3_impls as _sd3  # must expose CFGDenoiser(model)
 def logger(d: str, csv_file: str):
     keys = sorted(d.keys())
     msg = ",".join([str(d[k]) for k in keys])
+    base_dir = os.path.dirname(csv_file)
+    os.makedirs(base_dir, exist_ok=True)
+    
     if not os.path.exists(csv_file):
         with open(csv_file, "w") as f:
             f.write(",".join(keys) + "\n")
