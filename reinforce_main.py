@@ -36,10 +36,6 @@ def main():
         model="models/sd3.5_medium.safetensors",
         model_folder="models",
         sampler="dpmpp_2m",
-        policy_mode='basis_delta',
-
-        # other
-        log_file='reinforce_batch.csv',
     )
 
     # ---------- Build inferencer ----------
@@ -60,7 +56,7 @@ def main():
 
     # ---------- RL objects ----------
     bank = PolicyBank(
-        mode=conf.policy_mode,   # 'basis_delta' is usually more stable than 'latent_delta'
+        mode='basis_delta',   # 'basis_delta' is usually more stable than 'latent_delta'
         state_dim=flat_latent_dim,
         action_dim_basis=64,
         alpha=0.02,
