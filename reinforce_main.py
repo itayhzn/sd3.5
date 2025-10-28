@@ -12,10 +12,10 @@ from sd3_infer import SD3Inferencer
 def main():
     # ---------- Train config ----------
     conf = TrainConfig(
-        schedule=(1, 2),
-        num_epochs=2,
+        schedule=(0),
+        num_epochs=100,
         iters_per_t=1,
-        lr=3e-4,
+        lr=0.01,
         value_coef=0.5,
         max_grad_norm=1.0,
         save_every=1,
@@ -23,16 +23,15 @@ def main():
         resume_from=None,
 
         prompts=[
-            "a studio photo of a ginger cat, soft light",
-            "a cinematic photo of a vintage car at dusk",
+            "a studio photo of a ginger cat, soft light"
         ],
-        seeds=[23, 42],
+        seeds=[23],
         width=1024,
         height=1024,
 
         # model config
         cfg_scale=4.5,
-        num_diffusion_steps=40,
+        num_diffusion_steps=28,
         shift=3.0,
         model="models/sd3.5_medium.safetensors",
         model_folder="models",
@@ -70,7 +69,7 @@ def main():
     )
 
     # Prompt-aware reward shim (keeps MockScorer compatible now, easy swap to ImageReward later)
-    mock = MockScorer(mode="sharp_contrast")
+    mock = MockScorer(mode="brightness")
     def reward_fn(prompt: str, img: Image.Image) -> float:
         return mock(img)
 
