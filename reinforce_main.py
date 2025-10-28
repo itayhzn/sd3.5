@@ -12,7 +12,7 @@ from sd3_infer import SD3Inferencer
 def main():
     # ---------- Train config ----------
     conf = TrainConfig(
-        schedule=(0),
+        schedule=(0, ),
         num_epochs=100,
         iters_per_t=1,
         lr=0.01,
