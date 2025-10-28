@@ -13,7 +13,7 @@ def main():
     # ---------- Train config ----------
     conf = TrainConfig(
         schedule=(0, ),
-        num_epochs=100,
+        num_epochs=1,
         iters_per_t=1,
         lr=0.1,
         value_coef=0.5,
