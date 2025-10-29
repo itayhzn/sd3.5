@@ -455,7 +455,8 @@ class GRPOTrainer:
                         normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-6)  # (G,)
 
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
-                        action_dim = bank.policy(int(t)).actor.net[-1].out_features // 2 # action dim
+                        last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
+                        action_dim = last_linear.out_features // 2
                         loss = -(normalized_advantages.detach() * (logp_tensor / max(1, action_dim))).mean()
                         logger({
                             "epoch": epoch,
