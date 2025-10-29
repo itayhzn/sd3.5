@@ -413,7 +413,9 @@ class GRPOTrainer:
             for t in cfg.schedule:
                 for i, pr in enumerate(prompts):
                     for j, sd in enumerate(seeds):
-                        img_ref = self._run_once(pr, sd, cfg.width, cfg.height, wrapper=None)
+                        tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_ref"
+                        save_dir = (cfg.out_dir if epoch % cfg.save_every == 0 else None)
+                        img_ref = self._run_once(pr, sd, cfg.width, cfg.height, wrapper=None, save_dir=save_dir, tag=tag)
                         r_ref = float(reward_fn(pr, img_ref))
 
                         # Collect a group of (logp, reward)
@@ -458,7 +460,7 @@ class GRPOTrainer:
                             "seed_idx": j,
                             "rewards": rewards,
                             "advantages": advantages.tolist(),
-                            "normalized_advantages": adv.tolist(),
+                            "normalized_advantages": normalized_advantages.tolist(),
                             "logps": logp_tensor.tolist(),
                             "loss": loss.item(),
                         }, f"{cfg.out_dir}/training_log.csv")

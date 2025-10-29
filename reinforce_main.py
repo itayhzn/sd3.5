@@ -13,7 +13,7 @@ def main():
     conf = TrainConfig(
         schedule=(0,),
         group_size=4,
-        num_epochs=1,
+        num_epochs=3,
         lr=0.01,
         max_grad_norm=1.0,
         save_every=1,
