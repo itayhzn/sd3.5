@@ -23,19 +23,8 @@ original_cfg_impl  = getattr(_sdm, "CFGDenoiser", None)
 # ------------------ utils ------------------
 
 def logger(d: str, csv_file: str):
-    keys = sorted(d.keys())
-    msg = ",".join([str(d[k]) for k in keys])
-
-    base_dir = os.path.dirname(csv_file)
-    os.makedirs(base_dir, exist_ok=True)
-    
-    if not os.path.exists(csv_file):
-        with open(csv_file, "w") as f:
-            f.write(",".join(keys) + "\n")
-            f.write(msg + "\n")
-    else:
-        with open(csv_file, "a") as f:
-            f.write(msg + "\n")
+    with open(csv_file, "a") as f:
+        f.write(str(d) + "\n")
 
 def normalize(t: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return t / (t.norm(p=2) + eps)
@@ -231,6 +220,18 @@ class GRPODenoiserWrapper:
             a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t)
             x = self.bank.apply_action(x, a_t, self.t_idx)
             self.logged_logp = logp_t
+            logger({
+                "t_idx": self.t_idx,
+                "sigma_t": sigma_t,
+                "cfg_scale": self.cfg_scale,
+                "action_norm": a_t.norm().item(),
+                "logp": logp_t.item(),
+            }, f"outputs/grpo_mock_scorer/policy_log_{self.t_idx:03d}.log")
+            # save latent and action for debugging
+            if save_tensors_path is not None:
+                os.makedirs(save_tensors_path, exist_ok=True)
+                torch.save(x.cpu(), f"outputs/grpo_mock_scorer/latent_t{self.t_idx:03d}.pt")
+                torch.save(a_t.cpu(), f"outputs/grpo_mock_scorer/action_t{self.t_idx:03d}.pt")
 
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
@@ -398,6 +399,7 @@ class GRPOTrainer:
                         loss.backward()
                         torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
                         opt.step()
+                        
 
             if epoch % cfg.save_every == 0:
                 os.makedirs(cfg.out_dir, exist_ok=True)
