@@ -216,8 +216,10 @@ class GRPODenoiserWrapper:
         if self.t_idx in self.schedule:
             print(f"  [GRPO] applying policy at t_idx={self.t_idx}")
             sigma_t = float(self.sigmas[min(self.t_idx, len(self.sigmas) - 1)])
-            s_t = self.bank.get_state(x, self.t_idx, sigma_t, self.cfg_scale)
-            a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t)
+            with torch.enable_grad():
+                s_t = self.bank.get_state(x, self.t_idx, sigma_t, self.cfg_scale)
+                a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t)
+
             x = self.bank.apply_action(x, a_t, self.t_idx)
             self.logged_logp = logp_t
             logger({
@@ -228,10 +230,9 @@ class GRPODenoiserWrapper:
                 "logp": logp_t.item(),
             }, f"outputs/grpo_mock_scorer/policy_log_{self.t_idx:03d}.log")
             # save latent and action for debugging
-            if save_tensors_path is not None:
-                os.makedirs(save_tensors_path, exist_ok=True)
-                torch.save(x.cpu(), f"outputs/grpo_mock_scorer/latent_t{self.t_idx:03d}.pt")
-                torch.save(a_t.cpu(), f"outputs/grpo_mock_scorer/action_t{self.t_idx:03d}.pt")
+        
+            torch.save(x.cpu(), f"outputs/grpo_mock_scorer/latent_t{self.t_idx:03d}.pt")
+            torch.save(a_t.cpu(), f"outputs/grpo_mock_scorer/action_t{self.t_idx:03d}.pt")
 
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
