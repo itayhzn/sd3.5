@@ -12,8 +12,8 @@ from sd3_infer import SD3Inferencer
 def main():
     conf = TrainConfig(
         schedule=(0,),
-        group_size=2,
-        num_epochs=100,
+        group_size=4,
+        num_epochs=1,
         lr=0.01,
         max_grad_norm=1.0,
         save_every=1,
@@ -41,9 +41,9 @@ def main():
         )
 
     bank = PolicyBank(
-        mode="latent_delta",     # try 'basis_delta' first; 'latent_delta' also supported
+        mode="basis_delta",     # try 'basis_delta' first; 'latent_delta' also supported
         action_dim_basis=64,
-        alpha=0.02,
+        alpha=0.1,
         device="cuda",
     )
 

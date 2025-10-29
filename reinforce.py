@@ -51,11 +51,49 @@ class StateBuilder:
     def __init__(self, device: str = "cuda"):
         self.device = device
 
+
+    @torch.no_grad()
     def build(self, latent: torch.Tensor, sigma_t: float, cfg_scale: float) -> torch.Tensor:
-        flat = latent.reshape(-1).to(self.device, dtype=torch.float32)
-        sigma_t = torch.tensor([float(sigma_t)], device=self.device, dtype=torch.float32)
-        cfg_scale = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
-        return torch.cat([flat, sigma_t, cfg_scale], dim=0)  # (D + 2,)
+        # latent: (B=1, C=16, H, W) in SD3.5
+        x = latent.detach().to(self.device, dtype=torch.float32)
+        if x.dim() == 4 and x.size(0) == 1:
+            x = x.squeeze(0)            # (C, H, W)
+        if x.dim() == 3:
+            # reduce channels with mean; (you can try std or [mean,std] concat later)
+            x = x.mean(dim=0)           # (H, W)
+        elif x.dim() == 2:
+            pass                        # already (H, W)
+        else:
+            raise ValueError(f"Unexpected latent shape for state: {tuple(latent.shape)}")
+
+        H, W = x.shape
+        # target ~64 elements, keep aspect, and do not upsample
+        target_elems = 64
+        scale = min(1.0, math.sqrt(target_elems / max(1, H * W)))
+        h_new = max(1, int(H * scale))
+        w_new = max(1, int(W * scale))
+
+        # downsample
+        x = F.adaptive_avg_pool2d(x.unsqueeze(0).unsqueeze(0), output_size=(h_new, w_new)) \
+                .squeeze(0).squeeze(0)   # (h_new, w_new)
+
+        flat = x.flatten()               # ~64 dims
+
+        # add log-sigma and cfg
+        sigma_feat = torch.tensor([math.log(max(1e-8, float(sigma_t)))],
+                                  device=self.device, dtype=torch.float32)
+        cfg_feat   = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
+
+        s = torch.cat([flat, sigma_feat, cfg_feat], dim=0)  # (≈66,)
+
+        # optional light normalization (helps training stability)
+        if s.numel() > 2:
+            s_center = s[:-2]
+            s_std = s_center.std(unbiased=False).clamp_min(1e-6)
+            s_center = (s_center - s_center.mean()) / s_std
+            s = torch.cat([s_center, s[-2:]], dim=0)
+
+        return s
 
 
 # ------------------ per-step policy ------------------
@@ -106,27 +144,37 @@ class StepPolicy(nn.Module):
             last.bias[half:] = self.init_log_std
         self.actor_in_dim = state_dim
 
-    def ensure_shapes(self, latent: torch.Tensor):
+    def ensure_shapes(self, latent: torch.Tensor, state_dim: int, action_dim_basis: int):
         D = latent.numel()
-        state_dim = D + 2  # + sigma + cfg
-        if (self.actor is None) or (self.actor_in_dim != state_dim) or (self.mode == "latent_delta" and self.latent_dim != D):
-            self._rebuild_actor(state_dim, D)
+        # (re)build actor if state_dim or (for latent_delta) D changed
+        if (self.actor is None) or (self.actor_in_dim != state_dim) \
+           or (self.mode == "latent_delta" and self.latent_dim != D):
+            if self.mode == "latent_delta":
+                out_dim = 2 * D
+            else:
+                out_dim = 2 * self.action_dim_basis
+            self.actor = make_mlp(state_dim, out_dim, hidden=self.hidden).to(self.device)
+            with torch.no_grad():
+                last = [m for m in self.actor.modules() if isinstance(m, nn.Linear)][-1]
+                half = last.out_features // 2
+                last.bias[half:] = self.init_log_std
+            self.actor_in_dim = state_dim
             self.latent_dim = D
         if self.mode == "basis_delta" and (self.basis is None or self.basis.shape[0] != D):
             self.basis = orthonormal_basis(D, self.action_dim_basis, device=self.device, dtype=torch.float32)
 
-    def dist(self, state: torch.Tensor) -> Normal:
+    # StepPolicy
+    def sample(self, state: torch.Tensor, generator: Optional[torch.Generator] = None):
         params = self.actor(state)  # (2*A,)
         A = params.numel() // 2
         mu, log_std = params[:A], params[A:]
         std = log_std.exp().clamp(min=1e-5)
-        return Normal(mu, std)
-
-    def sample(self, state: torch.Tensor):
-        d = self.dist(state)
-        a = d.rsample()
-        logp = d.log_prob(a).sum(-1)
-        return a, logp
+        # manual stochasticity, with optional per-group generator
+        eps = torch.randn_like(std) if generator is None else torch.randn_like(std, generator=generator)
+        a = mu + std * eps
+        # log prob (sum over dims)
+        logp = (-0.5 * (((a - mu) / std) ** 2 + 2 * log_std + math.log(2 * math.pi))).sum(-1)
+        return a.detach(), logp  # detach action (we only backprop through logp)
 
 
 # ------------------ policy bank ------------------
@@ -151,7 +199,7 @@ class PolicyBank(nn.Module):
         self.device = device
         self.bank = nn.ModuleDict()  # keyed by str(t)
         self.state_builder = StateBuilder(device=device)
-
+        
     def policy(self, t: int) -> StepPolicy:
         key = str(int(t))
         if key not in self.bank:
@@ -165,9 +213,10 @@ class PolicyBank(nn.Module):
         return self.bank[key]
 
     def get_state(self, latent_t: torch.Tensor, t: int, sigma_t: float, cfg_scale: float) -> torch.Tensor:
+        s_t = self.state_builder.build(latent_t, sigma_t, cfg_scale).to(self.device)
         pol = self.policy(t)
-        pol.ensure_shapes(latent_t)
-        return self.state_builder.build(latent_t, sigma_t, cfg_scale).to(self.device)
+        pol.ensure_shapes(latent_t, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
+        return s_t
 
     def apply_action(self, latent: torch.Tensor, a: torch.Tensor, t: int) -> torch.Tensor:
         pol = self.policy(t)
@@ -177,12 +226,14 @@ class PolicyBank(nn.Module):
             flat = pol.basis @ a
             delta = flat.view_as(latent)
         delta = normalize(delta) * pol.alpha
+        print(latent.norm().item(), delta.norm().item(), (latent + delta).norm().item())
         return latent + delta
 
     def reset_policies(self, latent: torch.Tensor, schedule: Sequence[int]):
         # force construction/sizing for initial latent shape
+        s_t = self.state_builder.build(latent, sigma_t=1.0, cfg_scale=1.0).to(self.device)
         for t in schedule:
-            self.policy(t).ensure_shapes(latent)
+            self.policy(t).ensure_shapes(latent, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
 
 
 # ------------------ denoiser wrapper (single step, GRPO) ------------------
@@ -200,6 +251,7 @@ class GRPODenoiserWrapper:
         cfg_scale: float,
         sigmas: torch.Tensor,     # 1D tensor of sigmas used by sampler (no trailing 0)
         total_steps: int,
+        generator: Optional[torch.Generator] = None,
     ):
         self.base = base_denoiser
         self.bank = bank
@@ -210,27 +262,35 @@ class GRPODenoiserWrapper:
 
         self.logged_logp = None
         self.t_idx = 0
+        self._acted = False
+
+        self.generator = generator or torch.Generator(device=bank.device)
+        if not self.generator.initial_seed():
+            self.generator.manual_seed(torch.seed())
+
 
     def forward(self, x, timestep, cond, uncond, cond_scale, save_tensors_path=None, **kwargs):
-        if self.t_idx in self.schedule:
+        if (not self._acted) and (self.t_idx in self.schedule):
             sigma_t = float(self.sigmas[min(self.t_idx, len(self.sigmas) - 1)])
+            x_detach = x.detach()
             with torch.enable_grad():
-                s_t = self.bank.get_state(x, self.t_idx, sigma_t, self.cfg_scale)
-                a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t)
+                s_t = self.bank.get_state(x_detach, self.t_idx, sigma_t, self.cfg_scale)
+                a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator)
 
-            x = self.bank.apply_action(x, a_t, self.t_idx)
+            x = self.bank.apply_action(x_detach, a_t.detach(), self.t_idx)
             self.logged_logp = logp_t
-            logger({
-                "t_idx": self.t_idx,
-                "sigma_t": sigma_t,
-                "cfg_scale": self.cfg_scale,
-                "action_norm": a_t.norm().item(),
-                "logp": logp_t.item(),
-            }, f"outputs/grpo_mock_scorer/policy_log_{self.t_idx:03d}.log")
-            # save latent and action for debugging
+            self._acted = True
+            # logger({
+            #     "t_idx": self.t_idx,
+            #     "sigma_t": sigma_t,
+            #     "cfg_scale": self.cfg_scale,
+            #     "action_norm": a_t.norm().item(),
+            #     "logp": logp_t.item(),
+            # }, f"outputs/grpo_mock_scorer/policy_log_{self.t_idx:03d}.log")
+            # # save latent and action for debugging
         
-            torch.save(x.cpu(), f"outputs/grpo_mock_scorer/latent_t{self.t_idx:03d}.pt")
-            torch.save(a_t.cpu(), f"outputs/grpo_mock_scorer/action_t{self.t_idx:03d}.pt")
+            # torch.save(x.cpu(), f"outputs/grpo_mock_scorer/latent_t{self.t_idx:03d}.pt")
+            # torch.save(a_t.cpu(), f"outputs/grpo_mock_scorer/action_t{self.t_idx:03d}.pt")
 
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
@@ -353,10 +413,17 @@ class GRPOTrainer:
             for t in cfg.schedule:
                 for i, pr in enumerate(prompts):
                     for j, sd in enumerate(seeds):
+                        img_ref = self._run_once(pr, sd, cfg.width, cfg.height, wrapper=None)
+                        r_ref = float(reward_fn(pr, img_ref))
+
                         # Collect a group of (logp, reward)
                         logps: List[torch.Tensor] = []
                         rewards: List[float] = []
+                        advantages: List[float] = []
                         for g in range(cfg.group_size):
+                            generator = torch.Generator(device=bank.device)
+                            generator.manual_seed(hash((epoch, t, i, j, g)) & 0xFFFFFFFF)
+
                             base = _sdm.CFGDenoiser(self.inf.sd3.model)
                             wrapper = GRPODenoiserWrapper(
                                 base_denoiser=base,
@@ -365,6 +432,7 @@ class GRPOTrainer:
                                 cfg_scale=self.cfg,
                                 sigmas=self.sigmas,           # pass precomputed schedule
                                 total_steps=self.steps,
+                                generator=generator,
                             )
                             tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_g{g:02d}"
                             img = self._run_once(pr, sd, cfg.width, cfg.height,
@@ -374,15 +442,15 @@ class GRPOTrainer:
                             r = float(reward_fn(pr, img))
                             rewards.append(r)
                             logps.append(wrapper.logged_logp)
+                            advantages.append(r - r_ref)
 
                         # Group-normalised advantages
-                        r_t = torch.tensor(rewards, device=bank.device, dtype=torch.float32)
-                        mean = r_t.mean()
-                        std = r_t.std(unbiased=False).clamp_min(1e-6)
-                        advantages = (r_t - mean) / std  # (G,)
+                        normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
+                        normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-6)  # (G,)
 
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
-                        loss = -(advantages.detach() * logp_tensor).mean()
+                        action_dim = self.bank.policy(int(t)).actor.net[-1].out_features // 2 # action dim
+                        loss = -(normalized_advantages.detach() * (logp_tensor / max(1, action_dim))).mean()
                         logger({
                             "epoch": epoch,
                             "t": t,
@@ -390,6 +458,7 @@ class GRPOTrainer:
                             "seed_idx": j,
                             "rewards": rewards,
                             "advantages": advantages.tolist(),
+                            "normalized_advantages": adv.tolist(),
                             "logps": logp_tensor.tolist(),
                             "loss": loss.item(),
                         }, f"{cfg.out_dir}/training_log.csv")
