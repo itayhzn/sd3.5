@@ -13,7 +13,7 @@ def main():
     conf = TrainConfig(
         schedule=(0,),
         group_size=4,
-        num_epochs=3,
+        num_epochs=100,
         lr=0.01,
         max_grad_norm=1.0,
         save_every=1,
@@ -43,7 +43,7 @@ def main():
     bank = PolicyBank(
         mode="basis_delta",     # try 'basis_delta' first; 'latent_delta' also supported
         action_dim_basis=64,
-        alpha=0.5,
+        alpha=0.1,
         device="cuda",
     )
 
