@@ -10,19 +10,21 @@ from mock_scorer import MockScorer
 from sd3_infer import SD3Inferencer
 
 def main():
+    with open("pqpp_prompts.txt", "r") as f:
+        prompts = f.readlines()
+    prompts = [p.strip() for p in prompts if p.strip()]
+
     conf = TrainConfig(
         schedule=(0,),
         group_size=4,
-        num_epochs=100,
+        num_epochs=5,
         lr=0.01,
         max_grad_norm=1.0,
         save_every=1,
         out_dir="outputs/grpo_mock_scorer",
         resume_from=None,
-        prompts=[
-            "a studio photo of a ginger cat, soft light",
-        ],
-        seeds=[23],
+        prompts=prompts[:100],
+        seeds=[23,34,45,56],
         width=1024,
         height=1024,
     )
@@ -43,7 +45,7 @@ def main():
     bank = PolicyBank(
         mode="basis_delta",     # try 'basis_delta' first; 'latent_delta' also supported
         action_dim_basis=64,
-        alpha=0.1,
+        alpha=0.05,
         device="cuda",
     )
 

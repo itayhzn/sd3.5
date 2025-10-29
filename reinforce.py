@@ -286,30 +286,30 @@ class GRPODenoiserWrapper:
                 s_t = self.bank.get_state(x_detach, self.t_idx, sigma_t, self.cfg_scale)
                 a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator)
 
-            stats_before = {
-                "min": x_detach.min().item(),
-                "max": x_detach.max().item(),
-                "mean": x_detach.mean().item(),
-                "std": x_detach.std().item(),
-            }
+            # stats_before = {
+            #     "min": x_detach.min().item(),
+            #     "max": x_detach.max().item(),
+            #     "mean": x_detach.mean().item(),
+            #     "std": x_detach.std().item(),
+            # }
             x = self.bank.apply_action(x_detach, a_t.detach(), self.t_idx)
-            stats_after = {
-                "min": x.min().item(),
-                "max": x.max().item(),
-                "mean": x.mean().item(),
-                "std": x.std().item(),
-            }
+            # stats_after = {
+            #     "min": x.min().item(),
+            #     "max": x.max().item(),
+            #     "mean": x.mean().item(),
+            #     "std": x.std().item(),
+            # }
             self.logged_logp = logp_t
             self._acted = True
-            logger({
-                "t_idx": self.t_idx,
-                "sigma_t": sigma_t,
-                "cfg_scale": self.cfg_scale,
-                "action_norm": a_t.norm().item(),
-                "logp": logp_t.item(),
-                "stats_before": stats_before,
-                "stats_after": stats_after,
-            }, f"outputs/grpo_mock_scorer/policy_log_{self.t_idx:03d}.log")
+            # logger({
+            #     "t_idx": self.t_idx,
+            #     "sigma_t": sigma_t,
+            #     "cfg_scale": self.cfg_scale,
+            #     "action_norm": a_t.norm().item(),
+            #     "logp": logp_t.item(),
+            #     "stats_before": stats_before,
+            #     "stats_after": stats_after,
+            # }, f"outputs/grpo_mock_scorer/policy_log_{self.t_idx:03d}.log")
             # # save latent and action for debugging
         
             # torch.save(x.cpu(), f"outputs/grpo_mock_scorer/latent_t{self.t_idx:03d}.pt")
@@ -468,17 +468,17 @@ class GRPOTrainer:
                             rewards.append(r)
                             logps.append(wrapper.logged_logp)
                             advantages.append(r - r_ref)
-                            logger({
-                                "epoch": epoch,
-                                "t": t,
-                                "prompt_idx": i,
-                                "seed_idx": j,
-                                "group_idx": g,
-                                "reward": r,
-                                "ref_reward": r_ref,
-                                "advantage": r - r_ref,
-                                "logp": logps[-1].item(),
-                            }, f"{cfg.out_dir}/training_log_individual.csv")
+                            # logger({
+                            #     "epoch": epoch,
+                            #     "t": t,
+                            #     "prompt_idx": i,
+                            #     "seed_idx": j,
+                            #     "group_idx": g,
+                            #     "reward": r,
+                            #     "ref_reward": r_ref,
+                            #     "advantage": r - r_ref,
+                            #     "logp": logps[-1].item(),
+                            # }, f"{cfg.out_dir}/training_log_individual.csv")
 
                         # Group-normalised advantages
                         normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
