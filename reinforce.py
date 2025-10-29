@@ -219,7 +219,9 @@ class GRPODenoiserWrapper:
         self.t_idx = 0
 
     def forward(self, x, timestep, cond, uncond, cond_scale, save_tensors_path=None, **kwargs):
+        print(f"GRPO wrapper at t_idx={self.t_idx}, timestep={timestep}, schedule={self.schedule}")
         if self.t_idx in self.schedule:
+            print(f"  [GRPO] applying policy at t_idx={self.t_idx}")
             sigma_t = float(self.sigmas[min(self.t_idx, len(self.sigmas) - 1)])
             s_t = self.bank.get_state(x, self.t_idx, sigma_t, self.cfg_scale)
             a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t)
@@ -293,6 +295,7 @@ class GRPOTrainer:
         if wrapper is not None:
             def _fake_cfg(*args, **kwargs):
                 return wrapper
+            print("Using GRPO denoiser wrapper")
             _sd3.CFGDenoiser = _fake_cfg
 
         try:
