@@ -169,8 +169,12 @@ class StepPolicy(nn.Module):
         A = params.numel() // 2
         mu, log_std = params[:A], params[A:]
         std = log_std.exp().clamp(min=1e-5)
-        # manual stochasticity, with optional per-group generator
-        eps = torch.randn_like(std) if generator is None else torch.randn_like(std, generator=generator)
+        
+        if generator is None:
+            eps = torch.randn_like(std)
+        else:
+            eps = torch.randn(std.shape, device=std.device, dtype=std.dtype, generator=generator)
+
         a = mu + std * eps
         # log prob (sum over dims)
         logp = (-0.5 * (((a - mu) / std) ** 2 + 2 * log_std + math.log(2 * math.pi))).sum(-1)
