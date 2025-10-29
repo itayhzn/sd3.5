@@ -229,9 +229,14 @@ class PolicyBank(nn.Module):
         else:
             flat = pol.basis @ a
             delta = flat.view_as(latent)
-        delta = normalize(delta) * pol.alpha
+
+        D = delta.numel()
+        target_l2 = math.sqrt(D) * pol.alpha
+        delta = delta.float()
+        delta = delta * (target_l2 / delta.norm(p=2).clamp_min(1e-8))
+        
         print(f"apply_action: latent.norm={latent.norm().item()}, delta.norm={delta.norm().item()}, (latent + delta).norm={ (latent + delta).norm().item()}")
-        return latent + delta
+        return (latent + delta).to(latent.dtype)
 
     def reset_policies(self, latent: torch.Tensor, schedule: Sequence[int]):
         # force construction/sizing for initial latent shape
@@ -489,7 +494,7 @@ class GRPOTrainer:
                             "prompt_idx": i,
                             "seed_idx": j,
                             "rewards": rewards,
-                            "advantages": advantages.tolist(),
+                            "advantages": advantages,
                             "normalized_advantages": normalized_advantages.tolist(),
                             "logps": logp_tensor.tolist(),
                             "loss": loss.item(),
