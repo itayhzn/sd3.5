@@ -14,8 +14,11 @@ from torch.distributions import Normal
 from PIL import Image
 import sys
 
-import sd3_impls as _sd3  # must expose CFGDenoiser(model)
+import sd3_infer as _sdi
+import sd3_impls as _sdm
 
+original_cfg_infer = getattr(_sdi, "CFGDenoiser", None)
+original_cfg_impl  = getattr(_sdm, "CFGDenoiser", None)
 
 # ------------------ utils ------------------
 
@@ -292,11 +295,11 @@ class GRPOTrainer:
         cond = self.inf.get_cond(prompt)
         ncond = self.neg_cond
 
-        original_cfg = sys.modules["sd3_impls"].CFGDenoiser
         if wrapper is not None:
             def _fake_cfg(*args, **kwargs):
                 return wrapper
-            sys.modules["sd3_impls"].CFGDenoiser = _fake_cfg
+            _sdi.CFGDenoiser = _fake_cfg
+            _sdm.CFGDenoiser = _fake_cfg
 
         try:
             sampled_latent = self.inf.do_sampling(
@@ -313,7 +316,11 @@ class GRPOTrainer:
                 save_tensors_path=None,
             )
         finally:
-            sys.modules["sd3_impls"].CFGDenoiser = original_cfg
+            if wrapper is not None:
+                if original_cfg_infer is not None:
+                    _sdi.CFGDenoiser = original_cfg_infer
+                if original_cfg_impl is not None:
+                    _sdm.CFGDenoiser = original_cfg_impl
 
         img = self.inf.vae_decode(sampled_latent)
         if save_dir and tag:
@@ -350,7 +357,7 @@ class GRPOTrainer:
                         logps: List[torch.Tensor] = []
                         rewards: List[float] = []
                         for g in range(cfg.group_size):
-                            base = _sd3.CFGDenoiser(self.inf.sd3.model)
+                            base = _sdm.CFGDenoiser(self.inf.sd3.model)
                             wrapper = GRPODenoiserWrapper(
                                 base_denoiser=base,
                                 bank=bank,
