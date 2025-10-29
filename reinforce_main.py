@@ -1,78 +1,61 @@
 # reinforce_main.py
-# Batch training driver with a prompt-aware reward shim.
+# Driver for GRPO training with state = latent.flatten() ⊕ sigma_t ⊕ cfg_scale
 
 import os
 from PIL import Image
 import torch
 
-from reinforce import PolicyBank, SingleStepTrainer, TrainConfig
+from reinforce import PolicyBank, GRPOTrainer, TrainConfig
 from mock_scorer import MockScorer
 from sd3_infer import SD3Inferencer
 
 def main():
-    # ---------- Train config ----------
     conf = TrainConfig(
-        schedule=(0, ),
-        num_epochs=1,
-        iters_per_t=1,
-        lr=0.1,
-        value_coef=0.5,
+        schedule=(0,),
+        group_size=4,
+        num_epochs=2,
+        lr=0.01,
         max_grad_norm=1.0,
         save_every=1,
-        out_dir='outputs/rl_batch',
+        out_dir="outputs/grpo_mock_scorer",
         resume_from=None,
-
         prompts=[
-            "a studio photo of a ginger cat, soft light"
+            "a studio photo of a ginger cat, soft light",
         ],
         seeds=[23],
         width=1024,
         height=1024,
-
-        # model config
-        cfg_scale=4.5,
-        num_diffusion_steps=28,
-        shift=3.0,
-        model="models/sd3.5_medium.safetensors",
-        model_folder="models",
-        sampler="dpmpp_2m",
     )
 
-    # ---------- Build inferencer ----------
+    # Frozen SD3.5
     inf = SD3Inferencer()
     with torch.no_grad():
         inf.load(
-            model=conf.model,
+            model="models/sd3.5_medium.safetensors",
             vae=None,
-            shift=conf.shift,
+            shift=3.0,
             controlnet_ckpt=None,
-            model_folder=conf.model_folder,
+            model_folder="models",
             text_encoder_device="cpu",
             verbose=False,
         )
 
-    latent_dim = (16, 128, 128)
-    flat_latent_dim = latent_dim[0] * latent_dim[1] * latent_dim[2]
-
-    # ---------- RL objects ----------
     bank = PolicyBank(
-        mode='basis_delta',   # 'basis_delta' is usually more stable than 'latent_delta'
-        state_dim=flat_latent_dim,
+        mode="basis_delta",     # try 'basis_delta' first; 'latent_delta' also supported
         action_dim_basis=64,
         alpha=0.02,
         device="cuda",
     )
 
-    trainer = SingleStepTrainer(
+    trainer = GRPOTrainer(
         inferencer=inf,
-        steps=conf.num_diffusion_steps,
-        cfg=conf.cfg_scale,
-        sampler=conf.sampler,
+        steps=28,
+        cfg_scale=4.5,
+        sampler="dpmpp_2m",
         device="cuda",
     )
 
-    # Prompt-aware reward shim (keeps MockScorer compatible now, easy swap to ImageReward later)
-    mock = MockScorer(mode="brightness")
+    mock = MockScorer(mode="sharp_contrast")
     def reward_fn(prompt: str, img: Image.Image) -> float:
         return mock(img)
 
