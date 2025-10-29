@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 from PIL import Image
+import sys
 
 import sd3_impls as _sd3  # must expose CFGDenoiser(model)
 
@@ -291,12 +292,11 @@ class GRPOTrainer:
         cond = self.inf.get_cond(prompt)
         ncond = self.neg_cond
 
-        original_cfg = _sd3.CFGDenoiser
+        original_cfg = sys.modules["sd3_impls"].CFGDenoiser
         if wrapper is not None:
             def _fake_cfg(*args, **kwargs):
                 return wrapper
-            print("Using GRPO denoiser wrapper")
-            _sd3.CFGDenoiser = _fake_cfg
+            sys.modules["sd3_impls"].CFGDenoiser = _fake_cfg
 
         try:
             sampled_latent = self.inf.do_sampling(
@@ -313,7 +313,7 @@ class GRPOTrainer:
                 save_tensors_path=None,
             )
         finally:
-            _sd3.CFGDenoiser = original_cfg
+            sys.modules["sd3_impls"].CFGDenoiser = original_cfg
 
         img = self.inf.vae_decode(sampled_latent)
         if save_dir and tag:

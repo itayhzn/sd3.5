@@ -206,7 +206,6 @@ class CFGDenoiser(torch.nn.Module):
         save_tensors_path=None,
         **kwargs,
     ):
-        print("CFG Denoiser forward called")
         batched = self.model.apply_model(
             torch.cat([x, x]),
             torch.cat([timestep, timestep]),
