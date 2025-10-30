@@ -67,8 +67,8 @@ class StateBuilder:
             raise ValueError(f"Unexpected latent shape for state: {tuple(latent.shape)}")
 
         H, W = x.shape
-        # target ~64 elements, keep aspect, and do not upsample
-        target_elems = 64
+        # target elements, keep aspect, and do not upsample
+        target_elems = 128
         scale = min(1.0, math.sqrt(target_elems / max(1, H * W)))
         h_new = max(1, int(H * scale))
         w_new = max(1, int(W * scale))
@@ -77,7 +77,7 @@ class StateBuilder:
         x = F.adaptive_avg_pool2d(x.unsqueeze(0).unsqueeze(0), output_size=(h_new, w_new)) \
                 .squeeze(0).squeeze(0)   # (h_new, w_new)
 
-        flat = x.flatten()               # ~64 dims
+        flat = x.flatten()               # ~target_elems dims
 
         # add log-sigma and cfg
         sigma_feat = torch.tensor([math.log(max(1e-8, float(sigma_t)))],
