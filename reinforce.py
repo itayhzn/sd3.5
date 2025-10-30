@@ -131,6 +131,7 @@ class StepPolicy(nn.Module):
         # for basis mode + size tracking
         self.basis: Optional[torch.Tensor] = None
         self.latent_dim: Optional[int] = None
+        self.log_idx = 0
 
     def _rebuild_actor(self, state_dim: int, D: int):
         if self.mode == "latent_delta":
@@ -170,12 +171,20 @@ class StepPolicy(nn.Module):
         mu, log_std = params[:A], params[A:]
         std = log_std.exp().clamp(min=1e-5)
         
+        logger({
+            "mu": mu.tolist(),
+            "std": std.tolist(),
+        }, f"outputs/grpo_mock_scorer/policy_params.log")
+
         if generator is None:
             eps = torch.randn_like(std)
         else:
             eps = torch.randn(std.shape, device=std.device, dtype=std.dtype, generator=generator)
 
-        a = mu + std * eps
+        torch.save(eps.cpu(), f"outputs/grpo_mock_scorer/policy_noise_{self.log_idx}.pt")
+        self.log_idx += 1
+
+        a = mu + std * eps # ~ N(mu, std^2)
         # log prob (sum over dims)
         logp = (-0.5 * (((a - mu) / std) ** 2 + 2 * log_std + math.log(2 * math.pi))).sum(-1)
         return a.detach(), logp  # detach action (we only backprop through logp)
@@ -234,8 +243,7 @@ class PolicyBank(nn.Module):
         target_l2 = math.sqrt(D) * pol.alpha
         delta = delta.float()
         delta = delta * (target_l2 / delta.norm(p=2).clamp_min(1e-8))
-        
-        print(f"apply_action: latent.norm={latent.norm().item()}, delta.norm={delta.norm().item()}, (latent + delta).norm={ (latent + delta).norm().item()}")
+
         return (latent + delta).to(latent.dtype)
 
     def reset_policies(self, latent: torch.Tensor, schedule: Sequence[int]):
@@ -375,6 +383,7 @@ class GRPOTrainer:
     def _run_once(self, prompt: str, seed: int, width: int, height: int, wrapper=None,
                   tag: Optional[str] = None, save_dir: Optional[str] = None) -> Image.Image:
         latent = self.inf.get_empty_latent(1, width, height, seed, device="cuda")
+        torch.save(latent.cpu(), f"outputs/grpo_mock_scorer/initial_latent_{tag}.pt")
         cond = self.inf.get_cond(prompt)
         ncond = self.neg_cond
 
@@ -487,7 +496,7 @@ class GRPOTrainer:
 
                         # Group-normalised advantages
                         normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
-                        normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-6)  # (G,)
+                        normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-2)  # (G,)
 
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
                         last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]

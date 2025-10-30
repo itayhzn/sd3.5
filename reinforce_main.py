@@ -18,7 +18,7 @@ def main():
     conf = TrainConfig(
         schedule=(0,),
         group_size=8,
-        num_epochs=20,
+        num_epochs=15,
         lr=0.01,
         max_grad_norm=1.0,
         save_every=1,
@@ -46,7 +46,7 @@ def main():
         )
 
     bank = PolicyBank(
-        mode="latent_delta",     # try 'basis_delta' first; 'latent_delta' also supported
+        mode="basis_delta",     # try 'basis_delta' first; 'latent_delta' also supported
         action_dim_basis=64,
         alpha=1,
         device="cuda",
@@ -60,7 +60,7 @@ def main():
         device="cuda",
     )
 
-    mock = MockScorer(mode="sharp_contrast")
+    mock = MockScorer(mode="brightness")
     def reward_fn(prompt: str, img: Image.Image) -> float:
         return mock(img)
 
