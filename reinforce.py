@@ -498,6 +498,7 @@ class GRPOTrainer:
                             "t": t,
                             "prompt_idx": i,
                             "seed_idx": j,
+                            'ref_reward': r_ref,
                             "rewards": rewards,
                             "advantages": advantages,
                             "normalized_advantages": normalized_advantages.tolist(),
