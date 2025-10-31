@@ -48,7 +48,8 @@ def main():
     bank = PolicyBank(
         mode="basis_delta",     # try 'basis_delta' first; 'latent_delta' also supported
         action_dim_basis=64,
-        alpha=1,
+        action_alpha=1,
+        state_alpha=0.02,
         device="cuda",
     )
 

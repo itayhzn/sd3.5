@@ -111,14 +111,14 @@ class StepPolicy(nn.Module):
         mode: str,
         action_dim_basis: int,
         init_log_std: float = -1.0,
-        alpha: float = 0.02,
+        action_alpha: float = 0.02,
         hidden: int = 256,
         device: str = "cuda",
     ):
         super().__init__()
         assert mode in ("latent_delta", "basis_delta")
         self.mode = mode
-        self.alpha = alpha
+        self.action_alpha = action_alpha
         self.hidden = hidden
         self.device = device
 
@@ -200,14 +200,16 @@ class PolicyBank(nn.Module):
         self,
         mode: str = "basis_delta",
         action_dim_basis: int = 64,
-        alpha: float = 0.02,
+        action_alpha: float = 1,
+        state_alpha: float = 0.02,
         hidden: int = 256,
         device: str = "cuda",
     ):
         super().__init__()
         self.mode = mode
         self.action_dim_basis = action_dim_basis
-        self.alpha = alpha
+        self.action_alpha = action_alpha
+        self.state_alpha = state_alpha
         self.hidden = hidden
         self.device = device
         self.bank = nn.ModuleDict()  # keyed by str(t)
@@ -219,14 +221,16 @@ class PolicyBank(nn.Module):
             self.bank[key] = StepPolicy(
                 mode=self.mode,
                 action_dim_basis=self.action_dim_basis,
-                alpha=self.alpha,
+                action_alpha=self.action_alpha,
                 hidden=self.hidden,
                 device=self.device,
             )
         return self.bank[key]
 
-    def get_state(self, latent_t: torch.Tensor, t: int, sigma_t: float, cfg_scale: float) -> torch.Tensor:
+    def get_state(self, latent_t: torch.Tensor, t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         s_t = self.state_builder.build(latent_t, sigma_t, cfg_scale).to(self.device)
+        if generator is not None:
+            s_t = s_t + self.state_alpha * torch.randn(s_t.shape, device=s_t.device, dtype=s_t.dtype, generator=generator)
         pol = self.policy(t)
         pol.ensure_shapes(latent_t, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
         return s_t
@@ -240,7 +244,7 @@ class PolicyBank(nn.Module):
             delta = flat.view_as(latent)
 
         D = delta.numel()
-        target_l2 = math.sqrt(D) * pol.alpha
+        target_l2 = math.sqrt(D) * pol.action_alpha
         delta = delta.float()
         delta = delta * (target_l2 / delta.norm(p=2).clamp_min(1e-8))
 
@@ -291,7 +295,7 @@ class GRPODenoiserWrapper:
             sigma_t = float(self.sigmas[min(self.t_idx, len(self.sigmas) - 1)])
             x_detach = x.detach()
             with torch.enable_grad():
-                s_t = self.bank.get_state(x_detach, self.t_idx, sigma_t, self.cfg_scale)
+                s_t = self.bank.get_state(x_detach, self.t_idx, sigma_t, self.cfg_scale, generator=self.generator)
                 a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator)
 
             stats_before = {
@@ -498,10 +502,13 @@ class GRPOTrainer:
                         normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
                         normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-2)  # (G,)
 
+                        normalized_rewards = torch.tensor(rewards, device=bank.device, dtype=torch.float32)
+                        normalized_rewards = (normalized_rewards - normalized_rewards.mean()) / normalized_rewards.std(unbiased=False).clamp_min(1e-2)  # (G,)
+
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
                         last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
                         action_dim = last_linear.out_features // 2
-                        loss = -(normalized_advantages.detach() * (logp_tensor / max(1, action_dim))).mean()
+                        loss = -(normalized_rewards.detach() * (logp_tensor / max(1, action_dim))).mean()
                         logger({
                             "epoch": epoch,
                             "t": t,
@@ -511,6 +518,7 @@ class GRPOTrainer:
                             "rewards": rewards,
                             "advantages": advantages,
                             "normalized_advantages": normalized_advantages.tolist(),
+                            "normalized_rewards": normalized_rewards.tolist(),
                             "logps": logp_tensor.tolist(),
                             "loss": loss.item(),
                         }, f"{cfg.out_dir}/training_log_group.csv")
