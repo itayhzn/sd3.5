@@ -248,11 +248,11 @@ class PolicyBank(nn.Module):
     def get_state(self, latent_t: torch.Tensor, t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         s_t = self.state_builder.build(latent_t, sigma_t, cfg_scale).to(self.device)
         if self.save_tensor_logs:
-            save_tensor(s_t, f"{self.out_dir}/tensors/state_t{t:03d}.pt")
+            save_tensor(s_t, f"{self.out_dir}/tensors/state_t{int(t*1000):03d}.pt")
         if generator is not None:
             s_t = s_t + self.state_alpha * torch.randn(s_t.shape, device=s_t.device, dtype=s_t.dtype, generator=generator)
             if self.save_tensor_logs:
-                save_tensor(s_t, f"{self.out_dir}/tensors/state_noisy_t{t:03d}.pt")
+                save_tensor(s_t, f"{self.out_dir}/tensors/state_noisy_t{int(t*1000):03d}.pt")
         pol = self.policy(t)
         pol.ensure_shapes(latent_t, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
         return s_t
