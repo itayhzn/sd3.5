@@ -436,7 +436,7 @@ class GRPOTrainer:
         
         # materialize/size policies for current latent shape
         with torch.no_grad():
-            z0 = self.inf.get_empty_latent(1, cfg.width, cfg.height, seeds[0], device="cuda")
+            z0 = self.inf.get_empty_latent(1, cfg.width, cfg.height, 23, device="cuda")
         bank.reset_policies(z0, cfg.schedule)
 
         opt = torch.optim.AdamW(bank.parameters(), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=1e-4)
