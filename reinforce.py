@@ -451,6 +451,12 @@ class GRPOTrainer:
             bank.load_state_dict(state["policy_bank"])
             print(f"Resumed policy_bank from {cfg.resume_from}")
 
+        print("Starting GRPO training...")
+        print("Prompts:", prompts)
+        print("Seeds:", seeds if not generate_seeds else "will generate per iteration")
+        print("Training configuration:")
+        print(cfg)
+
         for epoch in range(1, cfg.num_epochs + 1):
             for t in cfg.schedule:
                 for i, pr in enumerate(prompts):
@@ -526,7 +532,7 @@ class GRPOTrainer:
             if epoch % cfg.save_every == 0:
                 os.makedirs(cfg.out_dir, exist_ok=True)
                 ckpt = {"policy_bank": bank.state_dict(), "schedule": cfg.schedule, "epoch": epoch}
-                # torch.save(ckpt, os.path.join(cfg.out_dir, f"policy_bank_epoch_{epoch:02d}.pt"))
+                torch.save(ckpt, os.path.join(cfg.out_dir, f"checkpoints/policy_bank_epoch_{epoch:02d}.pt"))
                 print(f"[GRPO] Saved checkpoint for epoch {epoch}")
 
         print("GRPO training complete.")
