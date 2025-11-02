@@ -15,7 +15,7 @@ def main(args):
     #     prompts = f.readlines()
     # prompts = [p.strip() for p in prompts if p.strip()]
 
-    if args.prompts is None:
+    if len(args.prompts) == 0:
         if args.prompts_file is not None:
             with open(args.prompts_file, "r") as f:
                 args.prompts = [line.strip() for line in f.readlines() if line.strip()]
