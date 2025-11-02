@@ -23,9 +23,14 @@ original_cfg_impl  = getattr(_sdm, "CFGDenoiser", None)
 # ------------------ utils ------------------
 
 def logger(d: str, filename: str):
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
     with open(filename, "a") as f:
         f.write(str(d) + "\n")
-    
+
+def save_tensor(t: torch.Tensor, filename: str):
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    torch.save(t.detach().cpu(), filename)
+
 def normalize(t: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return t / (t.norm(p=2) + eps)
 
@@ -183,7 +188,7 @@ class StepPolicy(nn.Module):
         else:
             eps = torch.randn(std.shape, device=std.device, dtype=std.dtype, generator=generator)
 
-        # torch.save(eps.cpu(), f"{self.out_dir}/tensors/policy_noise_{self.log_idx}.pt")
+        # save_tensor(eps, f"{self.out_dir}/tensors/policy_noise_{self.log_idx}.pt")
         self.log_idx += 1
 
         a = mu + std * eps # ~ N(mu, std^2)
@@ -328,8 +333,8 @@ class GRPODenoiserWrapper:
             }, f"{self.out_dir}/logs/policy_log_{self.t_idx:03d}.log")
             # save latent and action for debugging
 
-            # torch.save(x.cpu(), f"{self.out_dir}/tensors/latent_t{self.t_idx:03d}.pt")
-            # torch.save(a_t.cpu(), f"{self.out_dir}/tensors/action_t{self.t_idx:03d}.pt")
+            # save_tensor(x, f"{self.out_dir}/tensors/latent_t{self.t_idx:03d}.pt")
+            # save_tensor(a_t, f"{self.out_dir}/tensors/action_t{self.t_idx:03d}.pt")
 
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
@@ -392,7 +397,7 @@ class GRPOTrainer:
     def _run_once(self, prompt: str, seed: int, width: int, height: int, wrapper=None,
                   tag: Optional[str] = None, save_dir: Optional[str] = None) -> Image.Image:
         latent = self.inf.get_empty_latent(1, width, height, seed, device="cuda")
-        # torch.save(latent.cpu(), f"outputs/grpo_mock_scorer/initial_latent_{tag}.pt")
+        # save_tensor(latent, f"outputs/grpo_mock_scorer/initial_latent_{tag}.pt")
         cond = self.inf.get_cond(prompt)
         ncond = self.neg_cond
 
@@ -532,7 +537,7 @@ class GRPOTrainer:
             if epoch % cfg.save_every == 0:
                 os.makedirs(cfg.out_dir, exist_ok=True)
                 ckpt = {"policy_bank": bank.state_dict(), "schedule": cfg.schedule, "epoch": epoch}
-                torch.save(ckpt, os.path.join(cfg.out_dir, f"checkpoints/policy_bank_epoch_{epoch:02d}.pt"))
+                # save_tensor(ckpt, os.path.join(cfg.out_dir, f"checkpoints/policy_bank_epoch_{epoch:02d}.pt"))
                 print(f"[GRPO] Saved checkpoint for epoch {epoch}")
 
         print("GRPO training complete.")
