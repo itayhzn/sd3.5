@@ -282,6 +282,7 @@ class GRPODenoiserWrapper:
         sigmas: torch.Tensor,     # 1D tensor of sigmas used by sampler (no trailing 0)
         total_steps: int,
         generator: Optional[torch.Generator] = None,
+        out_dir: str = "outputs/grpo",
     ):
         self.base = base_denoiser
         self.bank = bank
@@ -293,6 +294,7 @@ class GRPODenoiserWrapper:
         self.logged_logp = None
         self.t_idx = 0
         self._acted = False
+        self.out_dir = out_dir
 
         self.generator = generator or torch.Generator(device=bank.device)
         if not self.generator.initial_seed():
@@ -492,6 +494,7 @@ class GRPOTrainer:
                                 sigmas=self.sigmas,           # pass precomputed schedule
                                 total_steps=self.steps,
                                 generator=generator,
+                                out_dir=cfg.out_dir,
                             )
                             tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_g{g:02d}"
                             img = self._run_once(pr, sd, cfg.width, cfg.height,
