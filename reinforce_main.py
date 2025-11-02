@@ -73,14 +73,12 @@ def main(args):
         return mock(img)
 
 
-    os.makedirs(conf.out_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
     trainer.train(bank, reward_fn, conf)
-    print("Done. Check:", conf.out_dir)
+    print("Done. Check:", out_dir)
 
 if __name__ == "__main__":
     # use argparse to get parameters from command line if needed
-    
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--schedule", type=int, nargs='*', default=[0])
     parser.add_argument("--group_size", type=int, default=8)

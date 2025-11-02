@@ -233,6 +233,7 @@ class PolicyBank(nn.Module):
                 action_alpha=self.action_alpha,
                 hidden=self.hidden,
                 device=self.device,
+                out_dir=self.out_dir,
             )
         return self.bank[key]
 
@@ -360,7 +361,7 @@ class TrainConfig:
     lr: float = 3e-4
     max_grad_norm: float = 1.0
     save_every: int = 1
-    out_dir: str = "outputs/grpo_per_timestep"
+    out_dir: str = "outputs/grpo"
     resume_from: Optional[str] = None
 
     # Batch prompts/seeds, resolution
