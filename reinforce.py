@@ -181,7 +181,7 @@ class StepPolicy(nn.Module):
         else:
             eps = torch.randn(std.shape, device=std.device, dtype=std.dtype, generator=generator)
 
-        torch.save(eps.cpu(), f"outputs/grpo_mock_scorer/policy_noise_{self.log_idx}.pt")
+        # torch.save(eps.cpu(), f"outputs/grpo_mock_scorer/policy_noise_{self.log_idx}.pt")
         self.log_idx += 1
 
         a = mu + std * eps # ~ N(mu, std^2)
@@ -387,7 +387,7 @@ class GRPOTrainer:
     def _run_once(self, prompt: str, seed: int, width: int, height: int, wrapper=None,
                   tag: Optional[str] = None, save_dir: Optional[str] = None) -> Image.Image:
         latent = self.inf.get_empty_latent(1, width, height, seed, device="cuda")
-        torch.save(latent.cpu(), f"outputs/grpo_mock_scorer/initial_latent_{tag}.pt")
+        # torch.save(latent.cpu(), f"outputs/grpo_mock_scorer/initial_latent_{tag}.pt")
         cond = self.inf.get_cond(prompt)
         ncond = self.neg_cond
 
@@ -532,7 +532,7 @@ class GRPOTrainer:
             if epoch % cfg.save_every == 0:
                 os.makedirs(cfg.out_dir, exist_ok=True)
                 ckpt = {"policy_bank": bank.state_dict(), "schedule": cfg.schedule, "epoch": epoch}
-                torch.save(ckpt, os.path.join(cfg.out_dir, f"policy_bank_epoch_{epoch:02d}.pt"))
+                # torch.save(ckpt, os.path.join(cfg.out_dir, f"policy_bank_epoch_{epoch:02d}.pt"))
                 print(f"[GRPO] Saved checkpoint for epoch {epoch}")
 
         print("GRPO training complete.")
