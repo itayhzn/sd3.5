@@ -25,7 +25,7 @@ def main(args):
     out_dir = os.path.join(args.out_dir, args.experiment_name)
 
     conf = TrainConfig(
-        schedule=args.schedule,
+        schedule=tuple(args.schedule),
         group_size=args.group_size,
         num_epochs=args.num_epochs,
         lr=args.lr,
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--schedule", type=tuple, default=(0,))
+    parser.add_argument("--schedule", type=int, nargs='*', default=[0])
     parser.add_argument("--group_size", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=15)
     parser.add_argument("--lr", type=float, default=0.01)
@@ -90,9 +90,9 @@ if __name__ == "__main__":
     parser.add_argument("--save_every", type=int, default=1)
     parser.add_argument("--out_dir", type=str, default="outputs/grpo")
     parser.add_argument("--resume_from", type=str, default=None)
-    parser.add_argument("--prompts", type=list, default=[])
+    parser.add_argument("--prompts", type=str, nargs='*', default=[])
     parser.add_argument("--prompts_file", type=str, default=None)
-    parser.add_argument("--seeds", type=list, default=[])
+    parser.add_argument("--seeds", type=int, nargs='*', default=[])
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--height", type=int, default=1024)
     parser.add_argument("--action_alpha", type=float, default=1.0)
