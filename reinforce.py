@@ -22,8 +22,8 @@ original_cfg_impl  = getattr(_sdm, "CFGDenoiser", None)
 
 # ------------------ utils ------------------
 
-def logger(d: str, csv_file: str):
-    with open(csv_file, "a") as f:
+def logger(d: str, filename: str):
+    with open(filename, "a") as f:
         f.write(str(d) + "\n")
     
 def normalize(t: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -114,6 +114,7 @@ class StepPolicy(nn.Module):
         action_alpha: float = 0.02,
         hidden: int = 256,
         device: str = "cuda",
+        out_dir: str = "outputs/grpo"
     ):
         super().__init__()
         assert mode in ("latent_delta", "basis_delta")
@@ -121,6 +122,7 @@ class StepPolicy(nn.Module):
         self.action_alpha = action_alpha
         self.hidden = hidden
         self.device = device
+        self.out_dir = out_dir
 
         # lazily built after we see a latent (to know D)
         self.actor: nn.Sequential = None  # type: ignore
@@ -174,14 +176,14 @@ class StepPolicy(nn.Module):
         logger({
             "mu": mu.tolist(),
             "std": std.tolist(),
-        }, f"outputs/grpo_mock_scorer/policy_params.log")
+        }, f"{self.out_dir}/logs/policy_params.log")
 
         if generator is None:
             eps = torch.randn_like(std)
         else:
             eps = torch.randn(std.shape, device=std.device, dtype=std.dtype, generator=generator)
 
-        # torch.save(eps.cpu(), f"outputs/grpo_mock_scorer/policy_noise_{self.log_idx}.pt")
+        # torch.save(eps.cpu(), f"{self.out_dir}/tensors/policy_noise_{self.log_idx}.pt")
         self.log_idx += 1
 
         a = mu + std * eps # ~ N(mu, std^2)
@@ -204,6 +206,7 @@ class PolicyBank(nn.Module):
         state_alpha: float = 0.02,
         hidden: int = 256,
         device: str = "cuda",
+        out_dir: str = "outputs/grpo"
     ):
         super().__init__()
         self.mode = mode
@@ -212,6 +215,7 @@ class PolicyBank(nn.Module):
         self.state_alpha = state_alpha
         self.hidden = hidden
         self.device = device
+        self.out_dir = out_dir
         self.bank = nn.ModuleDict()  # keyed by str(t)
         self.state_builder = StateBuilder(device=device)
         
@@ -321,11 +325,11 @@ class GRPODenoiserWrapper:
                 "logp": logp_t.item(),
                 "stats_before": stats_before,
                 "stats_after": stats_after,
-            }, f"outputs/grpo_mock_scorer/policy_log_{self.t_idx:03d}.log")
+            }, f"{self.out_dir}/logs/policy_log_{self.t_idx:03d}.log")
             # save latent and action for debugging
-        
-            # torch.save(x.cpu(), f"outputs/grpo_mock_scorer/latent_t{self.t_idx:03d}.pt")
-            # torch.save(a_t.cpu(), f"outputs/grpo_mock_scorer/action_t{self.t_idx:03d}.pt")
+
+            # torch.save(x.cpu(), f"{self.out_dir}/tensors/latent_t{self.t_idx:03d}.pt")
+            # torch.save(a_t.cpu(), f"{self.out_dir}/tensors/action_t{self.t_idx:03d}.pt")
 
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
@@ -364,12 +368,13 @@ class GRPOTrainer:
     For each (prompt, seed, t): sample G actions (group), compute rewards, normalise advantages,
     loss = -mean(A_i * logpi_i). No critic.
     """
-    def __init__(self, inferencer, steps: int, cfg_scale: float, sampler: str, device: str = "cuda"):
+    def __init__(self, inferencer, steps: int, cfg_scale: float, sampler: str, device: str = "cuda", out_dir: str = "outputs/grpo"):
         self.inf = inferencer
         self.steps = steps
         self.cfg = cfg_scale
         self.sampler = sampler
         self.device = device
+        self.out_dir = out_dir
         self.neg_cond = self.inf.get_cond("")
 
         # Precompute the exact sigma schedule used by do_sampling (no denoise trimming and no trailing 0)
@@ -455,7 +460,7 @@ class GRPOTrainer:
 
                     for j, sd in enumerate(seeds):
                         tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_ref"
-                        save_dir = (cfg.out_dir if epoch % cfg.save_every == 0 else None)
+                        save_dir = (os.path.join(cfg.out_dir, 'imgs') if epoch % cfg.save_every == 0 else None)
                         img_ref = self._run_once(pr, sd, cfg.width, cfg.height, wrapper=None, save_dir=save_dir, tag=tag)
                         r_ref = float(reward_fn(pr, img_ref))
 
@@ -481,29 +486,18 @@ class GRPOTrainer:
                             img = self._run_once(pr, sd, cfg.width, cfg.height,
                                                  wrapper=wrapper,
                                                  tag=tag,
-                                                 save_dir=(cfg.out_dir if epoch % cfg.save_every == 0 else None))
+                                                 save_dir=(os.path.join(cfg.out_dir, 'imgs') if epoch % cfg.save_every == 0 else None))
                             r = float(reward_fn(pr, img))
                             rewards.append(r)
                             logps.append(wrapper.logged_logp)
                             advantages.append(r - r_ref)
-                            # logger({
-                            #     "epoch": epoch,
-                            #     "t": t,
-                            #     "prompt_idx": i,
-                            #     "seed_idx": j,
-                            #     "group_idx": g,
-                            #     "reward": r,
-                            #     "ref_reward": r_ref,
-                            #     "advantage": r - r_ref,
-                            #     "logp": logps[-1].item(),
-                            # }, f"{cfg.out_dir}/training_log_individual.csv")
 
                         # Group-normalised advantages
                         normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
-                        normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-2)  # (G,)
+                        normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-6)  # (G,)
 
                         normalized_rewards = torch.tensor(rewards, device=bank.device, dtype=torch.float32)
-                        normalized_rewards = (normalized_rewards - normalized_rewards.mean()) / normalized_rewards.std(unbiased=False).clamp_min(1e-2)  # (G,)
+                        normalized_rewards = (normalized_rewards - normalized_rewards.mean()) / normalized_rewards.std(unbiased=False).clamp_min(1e-6)  # (G,)
 
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
                         last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
@@ -521,7 +515,7 @@ class GRPOTrainer:
                             "normalized_rewards": normalized_rewards.tolist(),
                             "logps": logp_tensor.tolist(),
                             "loss": loss.item(),
-                        }, f"{cfg.out_dir}/training_log_group.csv")
+                        }, f"{cfg.out_dir}/logs/training_log_group.log")
 
                         opt.zero_grad(set_to_none=True)
                         loss.backward()

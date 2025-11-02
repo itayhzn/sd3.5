@@ -22,6 +22,7 @@ def main(args):
         else:
             args.prompts = ["a studio photo of a ginger cat, soft light"]
     
+    out_dir = os.path.join(args.out_dir, args.experiment_name)
 
     conf = TrainConfig(
         schedule=args.schedule,
@@ -30,7 +31,7 @@ def main(args):
         lr=args.lr,
         max_grad_norm=args.max_grad_norm,
         save_every=args.save_every,
-        out_dir=os.path.join(args.out_dir, args.experiment_name),
+        out_dir=out_dir,
         resume_from=args.resume_from,
         prompts=args.prompts,
         seeds=args.seeds,
@@ -56,6 +57,7 @@ def main(args):
         action_dim_basis=args.action_dim_basis,
         action_alpha=args.action_alpha,
         state_alpha=args.state_alpha,
+        out_dir=out_dir,
     )
 
     trainer = GRPOTrainer(
@@ -63,6 +65,7 @@ def main(args):
         steps=args.steps,
         cfg_scale=args.cfg_scale,
         sampler="dpmpp_2m",
+        out_dir=out_dir,
     )
 
     mock = MockScorer(mode=args.reward_scorer)
@@ -85,7 +88,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--save_every", type=int, default=1)
-    parser.add_argument("--out_dir", type=str, default="outputs/grpo_mock_scorer")
+    parser.add_argument("--out_dir", type=str, default="outputs/grpo")
     parser.add_argument("--resume_from", type=str, default=None)
     parser.add_argument("--prompts", type=list, default=[])
     parser.add_argument("--prompts_file", type=str, default=None)
