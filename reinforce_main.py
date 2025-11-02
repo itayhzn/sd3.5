@@ -37,6 +37,7 @@ def main(args):
         seeds=args.seeds,
         width=args.width,
         height=args.height,
+        save_tensor_logs=args.save_tensor_logs,
     )
 
     # Frozen SD3.5
@@ -58,6 +59,7 @@ def main(args):
         action_alpha=args.action_alpha,
         state_alpha=args.state_alpha,
         out_dir=out_dir,
+        save_tensor_logs=args.save_tensor_logs,
     )
 
     trainer = GRPOTrainer(
@@ -102,6 +104,7 @@ if __name__ == "__main__":
     parser.add_argument("--reward_scorer", type=str, default="brightness", choices=["sharp_contrast", "brightness", "entropy"])
     parser.add_argument("--steps", type=int, default=28)
     parser.add_argument("--cfg_scale", type=float, default=4.5)
+    parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
     args = parser.parse_args()
     
     main(args)

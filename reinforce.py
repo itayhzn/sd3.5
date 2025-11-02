@@ -119,7 +119,8 @@ class StepPolicy(nn.Module):
         action_alpha: float = 0.02,
         hidden: int = 256,
         device: str = "cuda",
-        out_dir: str = "outputs/grpo"
+        out_dir: str = "outputs/grpo",
+        save_tensor_logs: bool = False
     ):
         super().__init__()
         assert mode in ("latent_delta", "basis_delta")
@@ -139,6 +140,7 @@ class StepPolicy(nn.Module):
         self.basis: Optional[torch.Tensor] = None
         self.latent_dim: Optional[int] = None
         self.log_idx = 0
+        self.save_tensor_logs = save_tensor_logs
 
     def _rebuild_actor(self, state_dim: int, D: int):
         if self.mode == "latent_delta":
@@ -173,16 +175,12 @@ class StepPolicy(nn.Module):
 
     # StepPolicy
     def sample(self, state: torch.Tensor, generator: Optional[torch.Generator] = None):
+
         params = self.actor(state)  # (2*A,)
         A = params.numel() // 2
         mu, log_std = params[:A], params[A:]
         std = log_std.exp().clamp(min=1e-5)
-        
-        logger({
-            "mu": mu.tolist(),
-            "std": std.tolist(),
-        }, f"{self.out_dir}/logs/policy_params.log")
-
+    
         if generator is None:
             eps = torch.randn_like(std)
         else:
@@ -194,6 +192,13 @@ class StepPolicy(nn.Module):
         a = mu + std * eps # ~ N(mu, std^2)
         # log prob (sum over dims)
         logp = (-0.5 * (((a - mu) / std) ** 2 + 2 * log_std + math.log(2 * math.pi))).sum(-1)
+
+        if self.save_tensor_logs:
+            save_tensor(log_std, f"{self.out_dir}/tensors/policy_logstd_{self.log_idx}.pt")
+            save_tensor(mu, f"{self.out_dir}/tensors/policy_mu_{self.log_idx}.pt")
+            save_tensor(eps, f"{self.out_dir}/tensors/policy_noise_{self.log_idx}.pt")
+        
+
         return a.detach(), logp  # detach action (we only backprop through logp)
 
 
@@ -211,7 +216,8 @@ class PolicyBank(nn.Module):
         state_alpha: float = 0.02,
         hidden: int = 256,
         device: str = "cuda",
-        out_dir: str = "outputs/grpo"
+        out_dir: str = "outputs/grpo",
+        save_tensor_logs: bool = False
     ):
         super().__init__()
         self.mode = mode
@@ -223,6 +229,7 @@ class PolicyBank(nn.Module):
         self.out_dir = out_dir
         self.bank = nn.ModuleDict()  # keyed by str(t)
         self.state_builder = StateBuilder(device=device)
+        self.save_tensor_logs = save_tensor_logs
         
     def policy(self, t: int) -> StepPolicy:
         key = str(int(t))
@@ -234,13 +241,18 @@ class PolicyBank(nn.Module):
                 hidden=self.hidden,
                 device=self.device,
                 out_dir=self.out_dir,
+                save_tensor_logs=self.save_tensor_logs,
             )
         return self.bank[key]
 
     def get_state(self, latent_t: torch.Tensor, t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         s_t = self.state_builder.build(latent_t, sigma_t, cfg_scale).to(self.device)
+        if self.save_tensor_logs:
+            save_tensor(s_t, f"{self.out_dir}/tensors/state_t{t:03d}.pt")
         if generator is not None:
             s_t = s_t + self.state_alpha * torch.randn(s_t.shape, device=s_t.device, dtype=s_t.dtype, generator=generator)
+            if self.save_tensor_logs:
+                save_tensor(s_t, f"{self.out_dir}/tensors/state_noisy_t{t:03d}.pt")
         pol = self.policy(t)
         pol.ensure_shapes(latent_t, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
         return s_t
@@ -284,6 +296,7 @@ class GRPODenoiserWrapper:
         total_steps: int,
         generator: Optional[torch.Generator] = None,
         out_dir: str = "outputs/grpo",
+        save_tensor_logs: bool = False,
     ):
         self.base = base_denoiser
         self.bank = bank
@@ -296,6 +309,7 @@ class GRPODenoiserWrapper:
         self.t_idx = 0
         self._acted = False
         self.out_dir = out_dir
+        self.save_tensor_logs = save_tensor_logs
 
         self.generator = generator or torch.Generator(device=bank.device)
         if not self.generator.initial_seed():
@@ -334,10 +348,11 @@ class GRPODenoiserWrapper:
                 "stats_before": stats_before,
                 "stats_after": stats_after,
             }, f"{self.out_dir}/logs/policy_log_{self.t_idx:03d}.log")
+            
             # save latent and action for debugging
-
-            # save_tensor(x, f"{self.out_dir}/tensors/latent_t{self.t_idx:03d}.pt")
-            # save_tensor(a_t, f"{self.out_dir}/tensors/action_t{self.t_idx:03d}.pt")
+            if self.save_tensor_logs:
+                save_tensor(x, f"{self.out_dir}/tensors/latent_t{self.t_idx:03d}.pt")
+                save_tensor(a_t, f"{self.out_dir}/tensors/action_t{self.t_idx:03d}.pt")
 
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
@@ -496,6 +511,7 @@ class GRPOTrainer:
                                 total_steps=self.steps,
                                 generator=generator,
                                 out_dir=cfg.out_dir,
+                                save_tensor_logs=cfg.save_tensor_logs,
                             )
                             tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_g{g:02d}"
                             img = self._run_once(pr, sd, cfg.width, cfg.height,
