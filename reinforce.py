@@ -384,6 +384,7 @@ class TrainConfig:
     seeds: Sequence[int] = (23,)
     width: int = 1024
     height: int = 1024
+    save_tensor_logs: bool = False
 
 
 class GRPOTrainer:
