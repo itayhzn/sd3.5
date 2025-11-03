@@ -174,7 +174,7 @@ class StepPolicy(nn.Module):
             self.basis = orthonormal_basis(D, self.action_dim_basis, device=self.device, dtype=torch.float32)
 
     # StepPolicy
-    def sample(self, state: torch.Tensor, generator: Optional[torch.Generator] = None):
+    def sample(self, state: torch.Tensor, generator: Optional[torch.Generator] = None, tag: Optional[str] = None):
 
         params = self.actor(state)  # (2*A,)
         A = params.numel() // 2
@@ -194,9 +194,9 @@ class StepPolicy(nn.Module):
         logp = (-0.5 * (((a - mu) / std) ** 2 + 2 * log_std + math.log(2 * math.pi))).sum(-1)
 
         if self.save_tensor_logs:
-            save_tensor(log_std, f"{self.out_dir}/tensors/policy_logstd_{self.log_idx}.pt")
-            save_tensor(mu, f"{self.out_dir}/tensors/policy_mu_{self.log_idx}.pt")
-            save_tensor(eps, f"{self.out_dir}/tensors/policy_noise_{self.log_idx}.pt")
+            save_tensor(log_std, f"{self.out_dir}/tensors/policy_logstd_{tag}.pt")
+            save_tensor(mu, f"{self.out_dir}/tensors/policy_mu_{tag}.pt")
+            save_tensor(eps, f"{self.out_dir}/tensors/policy_noise_{tag}.pt")
         
 
         return a.detach(), logp  # detach action (we only backprop through logp)
@@ -297,6 +297,7 @@ class GRPODenoiserWrapper:
         generator: Optional[torch.Generator] = None,
         out_dir: str = "outputs/grpo",
         save_tensor_logs: bool = False,
+        tag: Optional[str] = None,
     ):
         self.base = base_denoiser
         self.bank = bank
@@ -315,6 +316,7 @@ class GRPODenoiserWrapper:
         if not self.generator.initial_seed():
             self.generator.manual_seed(torch.seed())
 
+        self.tag = tag
 
     def forward(self, x, timestep, cond, uncond, cond_scale, save_tensors_path=None, **kwargs):
         if (not self._acted) and (self.t_idx in self.schedule):
@@ -322,7 +324,7 @@ class GRPODenoiserWrapper:
             x_detach = x.detach()
             with torch.enable_grad():
                 s_t = self.bank.get_state(x_detach, self.t_idx, sigma_t, self.cfg_scale, generator=self.generator)
-                a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator)
+                a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator, tag=self.tag)
 
             stats_before = {
                 "min": x_detach.min().item(),
@@ -347,12 +349,12 @@ class GRPODenoiserWrapper:
                 "logp": logp_t.item(),
                 "stats_before": stats_before,
                 "stats_after": stats_after,
-            }, f"{self.out_dir}/logs/policy_log_{self.t_idx:03d}.log")
+            }, f"{self.out_dir}/logs/policy_log_{self.tag}.log")
             
             # save latent and action for debugging
             if self.save_tensor_logs:
-                save_tensor(x, f"{self.out_dir}/tensors/latent_t{self.t_idx:03d}.pt")
-                save_tensor(a_t, f"{self.out_dir}/tensors/action_t{self.t_idx:03d}.pt")
+                save_tensor(x, f"{self.out_dir}/tensors/latent_{self.tag}.pt")
+                save_tensor(a_t, f"{self.out_dir}/tensors/action_{self.tag}.pt")
 
         out = self.base.forward(
             x, timestep, cond, uncond, cond_scale,
@@ -501,6 +503,8 @@ class GRPOTrainer:
                         for g in range(cfg.group_size):
                             generator = torch.Generator(device=bank.device)
                             generator.manual_seed(hash((epoch, t, i, j, g)) & 0xFFFFFFFF)
+                            
+                            tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_g{g:02d}"
 
                             base = _sdm.CFGDenoiser(self.inf.sd3.model)
                             wrapper = GRPODenoiserWrapper(
@@ -513,8 +517,8 @@ class GRPOTrainer:
                                 generator=generator,
                                 out_dir=cfg.out_dir,
                                 save_tensor_logs=cfg.save_tensor_logs,
+                                tag=tag,
                             )
-                            tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_g{g:02d}"
                             img = self._run_once(pr, sd, cfg.width, cfg.height,
                                                  wrapper=wrapper,
                                                  tag=tag,
