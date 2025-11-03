@@ -292,9 +292,9 @@ class PolicyBank(nn.Module):
 
         return (latent + delta).to(latent.dtype)
 
-    def reset_policies(self, latent: torch.Tensor, schedule: Sequence[int]):
+    def reset_policies(self, latent: torch.Tensor, cond: torch.Tensor, schedule: Sequence[int]):
         # force construction/sizing for initial latent shape
-        s_t = self.state_builder.build(latent, sigma_t=1.0, cfg_scale=1.0).to(self.device)
+        s_t = self.state_builder.build(latent, cond, sigma_t=1.0, cfg_scale=1.0).to(self.device)
         for t in schedule:
             self.policy(t).ensure_shapes(latent, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
 
@@ -484,11 +484,13 @@ class GRPOTrainer:
         prompts = list(cfg.prompts)
         seeds   = list(cfg.seeds)
         generate_seeds = len(seeds) == 0
-        
+
+        cond_null = self.inf.get_cond("")
+
         # materialize/size policies for current latent shape
         with torch.no_grad():
             z0 = self.inf.get_empty_latent(1, cfg.width, cfg.height, 23, device="cuda")
-        bank.reset_policies(z0, cfg.schedule)
+        bank.reset_policies(z0, cond_null, cfg.schedule)
 
         opt = torch.optim.AdamW(bank.parameters(), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=1e-4)
 
