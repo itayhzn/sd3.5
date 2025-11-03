@@ -92,16 +92,31 @@ class StateBuilder:
 
     @torch.no_grad()
     def _encode_cond(self, cond: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        _, pooled_clip = cond
+        """
+        Accepts:
+          - tuple: (seq_embeddings, pooled)
+          - dict:  {"c_crossattn": seq_embeddings, "y": pooled}
+        Returns a normalized vector of shape [cond_encoding_dim].
+        """
+        # 1) unify to (seq, pooled) 
+        seq = None
+        pooled = None
+        if isinstance(cond, tuple) and len(cond) == 2:
+            seq, pooled = cond
+        elif isinstance(cond, dict):
+            seq = cond.get("c_crossattn", None)
+            pooled = cond.get("y", None)
+        else:
+            raise TypeError(f"Unsupported cond type: {type(cond)}")
 
-        if self.cond_orthonormal_basis is None or self.cond_orthonormal_basis.shape[0] != pooled_clip.numel():
+        if self.cond_orthonormal_basis is None or self.cond_orthonormal_basis.shape[0] != pooled.numel():
             self.cond_orthonormal_basis = orthonormal_basis(
-                pooled_clip.numel(),
+                pooled.numel(),
                 self.cond_encoding_dim,
                 device=self.device,
                 dtype=torch.float32,
             )  # (D_cond, k)
-        flat = pooled_clip.detach().to(self.device, dtype=torch.float32).flatten()  # (D_cond,)
+        flat = pooled.detach().to(self.device, dtype=torch.float32).flatten()  # (D_cond,)
         encoded = self.cond_orthonormal_basis.T @ flat  # (k,)
 
         return self._normalize(encoded)
@@ -117,7 +132,12 @@ class StateBuilder:
                                   device=self.device, dtype=torch.float32)
         cfg_feat = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
 
-        s = torch.cat([x_enc, cond_enc, sigma_feat, cfg_feat], dim=0)  # (≈66,)
+        s = torch.cat([
+            x_enc, 
+            cond_enc, 
+            sigma_feat, 
+            cfg_feat
+        ], dim=0)  # (≈66,)
 
         return s
 
