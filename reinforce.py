@@ -195,8 +195,9 @@ class StepPolicy(nn.Module):
         params = self.actor(state)  # (2*A,)
         A = params.numel() // 2
         mu, log_std = params[:A], params[A:]
-        std = log_std.exp().clamp(min=1e-5)
-    
+        std = log_std.exp().clamp(min=1e-5, max=1)
+        mu = mu.clamp(min=-1, max=1)
+
         if generator is None:
             eps = torch.randn_like(std)
         else:
