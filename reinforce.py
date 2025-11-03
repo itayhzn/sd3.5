@@ -53,7 +53,7 @@ class StateBuilder:
     """
     s_t = concat( latent.flatten(), [sigma_t], [cfg_scale] )
     """
-    def __init__(self, latent_encoding_dim = 64, cond_encoding_dim = 64, device: str = "cuda"):
+    def __init__(self, latent_encoding_dim = 128, cond_encoding_dim = 32, device: str = "cuda"):
         self.device = device
         self.cond_orthonormal_basis = None
         self.latent_encoding_dim = latent_encoding_dim
