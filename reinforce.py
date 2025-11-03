@@ -59,9 +59,11 @@ class StateBuilder:
         self.latent_encoding_dim = latent_encoding_dim
         self.cond_encoding_dim = cond_encoding_dim
 
+    @torch.no_grad()
     def _normalize(self, t: torch.Tensor) -> torch.Tensor:
         return (t - t.mean()) / (t.std(unbiased=False).clamp_min(1e-6))
 
+    @torch.no_grad()
     def _encode_latent(self, latent: torch.Tensor) -> torch.Tensor:
         # placeholder for possible future encoding of latent + cond
         x = latent.detach().to(self.device, dtype=torch.float32)
@@ -88,21 +90,24 @@ class StateBuilder:
 
         return self._normalize(x.flatten()) 
 
-    def _encode_cond(self, cond: torch.Tensor) -> torch.Tensor:
-        if self.cond_orthonormal_basis is None or self.cond_orthonormal_basis.shape[0] != cond.numel():
+    @torch.no_grad()
+    def _encode_cond(self, cond: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        _, pooled_clip = cond
+
+        if self.cond_orthonormal_basis is None or self.cond_orthonormal_basis.shape[0] != pooled_clip.numel():
             self.cond_orthonormal_basis = orthonormal_basis(
-                cond.numel(),
+                pooled_clip.numel(),
                 self.cond_encoding_dim,
                 device=self.device,
                 dtype=torch.float32,
             )  # (D_cond, k)
-        flat_cond = cond.detach().to(self.device, dtype=torch.float32).flatten()  # (D_cond,)
-        encoded = self.cond_orthonormal_basis.T @ flat_cond  # (k,)
+        flat = pooled_clip.detach().to(self.device, dtype=torch.float32).flatten()  # (D_cond,)
+        encoded = self.cond_orthonormal_basis.T @ flat  # (k,)
 
         return self._normalize(encoded)
 
     @torch.no_grad()
-    def build(self, latent: torch.Tensor, cond: torch.Tensor, sigma_t: float, cfg_scale: float) -> torch.Tensor:
+    def build(self, latent: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], sigma_t: float, cfg_scale: float) -> torch.Tensor:
         # latent: (B=1, C=16, H, W) in SD3.5
         x_enc = self._encode_latent(latent)
         cond_enc = self._encode_cond(cond)
@@ -262,7 +267,7 @@ class PolicyBank(nn.Module):
             )
         return self.bank[key]
 
-    def get_state(self, latent_t: torch.Tensor, cond: torch.Tensor, t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
+    def get_state(self, latent_t: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         if generator is not None:
             noisy_latent = latent_t.detach() + self.state_alpha * torch.randn(latent_t.shape, device=latent_t.device, dtype=latent_t.dtype, generator=generator)
             if self.save_tensor_logs:
@@ -292,7 +297,7 @@ class PolicyBank(nn.Module):
 
         return (latent + delta).to(latent.dtype)
 
-    def reset_policies(self, latent: torch.Tensor, cond: torch.Tensor, schedule: Sequence[int]):
+    def reset_policies(self, latent: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], schedule: Sequence[int]):
         # force construction/sizing for initial latent shape
         s_t = self.state_builder.build(latent, cond, sigma_t=1.0, cfg_scale=1.0).to(self.device)
         for t in schedule:
@@ -485,12 +490,10 @@ class GRPOTrainer:
         seeds   = list(cfg.seeds)
         generate_seeds = len(seeds) == 0
 
-        cond_null = self.inf.get_cond("")
-
         # materialize/size policies for current latent shape
         with torch.no_grad():
             z0 = self.inf.get_empty_latent(1, cfg.width, cfg.height, 23, device="cuda")
-        bank.reset_policies(z0, cond_null, cfg.schedule)
+        bank.reset_policies(z0, self.neg_cond, cfg.schedule)
 
         opt = torch.optim.AdamW(bank.parameters(), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=1e-4)
 
