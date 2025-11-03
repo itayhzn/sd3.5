@@ -53,13 +53,17 @@ class StateBuilder:
     """
     s_t = concat( latent.flatten(), [sigma_t], [cfg_scale] )
     """
-    def __init__(self, device: str = "cuda"):
+    def __init__(self, latent_encoding_dim = 64, cond_encoding_dim = 64, device: str = "cuda"):
         self.device = device
+        self.cond_orthonormal_basis = None
+        self.latent_encoding_dim = latent_encoding_dim
+        self.cond_encoding_dim = cond_encoding_dim
 
+    def _normalize(self, t: torch.Tensor) -> torch.Tensor:
+        return (t - t.mean()) / (t.std(unbiased=False).clamp_min(1e-6))
 
-    @torch.no_grad()
-    def build(self, latent: torch.Tensor, sigma_t: float, cfg_scale: float) -> torch.Tensor:
-        # latent: (B=1, C=16, H, W) in SD3.5
+    def _encode_latent(self, latent: torch.Tensor) -> torch.Tensor:
+        # placeholder for possible future encoding of latent + cond
         x = latent.detach().to(self.device, dtype=torch.float32)
         if x.dim() == 4 and x.size(0) == 1:
             x = x.squeeze(0)            # (C, H, W)
@@ -73,7 +77,7 @@ class StateBuilder:
 
         H, W = x.shape
         # target elements, keep aspect, and do not upsample
-        target_elems = 128
+        target_elems = self.latent_encoding_dim
         scale = min(1.0, math.sqrt(target_elems / max(1, H * W)))
         h_new = max(1, int(H * scale))
         w_new = max(1, int(W * scale))
@@ -82,21 +86,33 @@ class StateBuilder:
         x = F.adaptive_avg_pool2d(x.unsqueeze(0).unsqueeze(0), output_size=(h_new, w_new)) \
                 .squeeze(0).squeeze(0)   # (h_new, w_new)
 
-        flat = x.flatten()               # ~target_elems dims
+        return self._normalize(x.flatten()) 
 
+    def _encode_cond(self, cond: torch.Tensor) -> torch.Tensor:
+        if self.cond_orthonormal_basis is None or self.cond_orthonormal_basis.shape[0] != cond.numel():
+            self.cond_orthonormal_basis = orthonormal_basis(
+                cond.numel(),
+                self.cond_encoding_dim,
+                device=self.device,
+                dtype=torch.float32,
+            )  # (D_cond, k)
+        flat_cond = cond.detach().to(self.device, dtype=torch.float32).flatten()  # (D_cond,)
+        encoded = self.cond_orthonormal_basis.T @ flat_cond  # (k,)
+
+        return self._normalize(encoded)
+
+    @torch.no_grad()
+    def build(self, latent: torch.Tensor, cond: torch.Tensor, sigma_t: float, cfg_scale: float) -> torch.Tensor:
+        # latent: (B=1, C=16, H, W) in SD3.5
+        x_enc = self._encode_latent(latent)
+        cond_enc = self._encode_cond(cond)
+        
         # add log-sigma and cfg
         sigma_feat = torch.tensor([math.log(max(1e-8, float(sigma_t)))],
                                   device=self.device, dtype=torch.float32)
-        cfg_feat   = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
+        cfg_feat = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
 
-        s = torch.cat([flat, sigma_feat, cfg_feat], dim=0)  # (≈66,)
-
-        # optional light normalization (helps training stability)
-        if s.numel() > 2:
-            s_center = s[:-2]
-            s_std = s_center.std(unbiased=False).clamp_min(1e-6)
-            s_center = (s_center - s_center.mean()) / s_std
-            s = torch.cat([s_center, s[-2:]], dim=0)
+        s = torch.cat([x_enc, cond_enc, sigma_feat, cfg_feat], dim=0)  # (≈66,)
 
         return s
 
@@ -245,14 +261,17 @@ class PolicyBank(nn.Module):
             )
         return self.bank[key]
 
-    def get_state(self, latent_t: torch.Tensor, t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
-        s_t = self.state_builder.build(latent_t, sigma_t, cfg_scale).to(self.device)
+    def get_state(self, latent_t: torch.Tensor, cond: torch.Tensor, t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
+        if generator is not None:
+            noisy_latent = latent_t.detach() + self.state_alpha * torch.randn(latent_t.shape, device=latent_t.device, dtype=latent_t.dtype, generator=generator)
+            if self.save_tensor_logs:
+                save_tensor(noisy_latent, f"{self.out_dir}/tensors/noisy_latent_t{int(sigma_t*1000):03d}.pt")
+        else:
+            noisy_latent = latent_t.detach()
+
+        s_t = self.state_builder.build(noisy_latent, cond, sigma_t, cfg_scale).to(self.device)
         if self.save_tensor_logs:
             save_tensor(s_t, f"{self.out_dir}/tensors/state_t{int(sigma_t*1000):03d}.pt")
-        if generator is not None:
-            s_t = s_t + self.state_alpha * torch.randn(s_t.shape, device=s_t.device, dtype=s_t.dtype, generator=generator)
-            if self.save_tensor_logs:
-                save_tensor(s_t, f"{self.out_dir}/tensors/state_noisy_t{int(sigma_t*1000):03d}.pt")
         pol = self.policy(t)
         pol.ensure_shapes(latent_t, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
         return s_t
@@ -323,7 +342,7 @@ class GRPODenoiserWrapper:
             sigma_t = float(self.sigmas[min(self.t_idx, len(self.sigmas) - 1)])
             x_detach = x.detach()
             with torch.enable_grad():
-                s_t = self.bank.get_state(x_detach, self.t_idx, sigma_t, self.cfg_scale, generator=self.generator)
+                s_t = self.bank.get_state(x_detach, cond, self.t_idx, sigma_t, self.cfg_scale, generator=self.generator)
                 a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator, tag=self.tag)
 
             stats_before = {
