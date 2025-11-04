@@ -29,7 +29,9 @@ def logger(d: str, filename: str):
 
 def save_tensor(t: torch.Tensor, filename: str):
     os.makedirs(os.path.dirname(filename), exist_ok=True)
-    torch.save(t.detach().cpu(), filename)
+    if isinstance(t, torch.Tensor):
+        t = t.detach().cpu()
+    torch.save(t, filename)
 
 def normalize(t: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return t / (t.norm(p=2) + eps)
