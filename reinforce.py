@@ -2,7 +2,7 @@
 # GRPO over per-timestep latent nudges for SD3.5
 # State = concat(latent.flatten(), [sigma_t], [cfg_scale])
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import json
 from typing import Callable, Optional, Sequence, Tuple, List
 
@@ -503,7 +503,7 @@ class GRPOTrainer:
         os.makedirs(cfg.out_dir, exist_ok=True)
         # save config 
         with open(os.path.join(cfg.out_dir, "config.json"), "w") as f:
-            json.dump(cfg.to_dict(), f, indent=4)
+            json.dump(asdict(cfg), f, indent=4)
 
         prompts = list(cfg.prompts)
         seeds   = list(cfg.seeds)
