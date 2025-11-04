@@ -364,14 +364,17 @@ class GRPODenoiserWrapper:
             self.logged_logp = logp_t
             self._acted = True
             logger({
+                "tag": self.tag,
                 "t_idx": self.t_idx,
                 "sigma_t": sigma_t,
                 "cfg_scale": self.cfg_scale,
                 "action_norm": a_t.norm().item(),
+                "action_mean": a_t.mean().item(),
+                "action_std": a_t.std().item(),
                 "logp": logp_t.item(),
                 "stats_before": stats_before,
                 "stats_after": stats_after,
-            }, f"{self.out_dir}/logs/policy_log_{self.tag}.log")
+            }, f"{self.out_dir}/logs/policy_stats.log")
             
             # save latent and action for debugging
             if self.save_tensor_logs:
