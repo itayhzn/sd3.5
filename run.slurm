@@ -8,6 +8,7 @@
 #SBATCH --gres=gpu:A100:1
 #SBATCH --account=gpu-tad-users_v2
 #SBATCH --partition=gpu-tad-pool
+#SBATCH --mem-per-gpu=55000
 #SBATCH --qos=owner
 
 ###### ignore SBATCH --mem-per-gpu=55000
