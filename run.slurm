@@ -17,6 +17,24 @@
 
 export USER_DIR="/wolflab/itaytuviah"
 export PROJECT_DIR="${USER_DIR}/sd3.5"
+export PATH="${USER_DIR}/miniconda3/bin:${PATH}"
+export CONDA_PLUGINS_AUTO_ACCEPT_TOS=true
+
+export CUDA_HOME=/usr/local/cuda
+export PATH=${CUDA_HOME}/bin:${PATH}
+export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# make sure paths exist
+mkdir -p "${PROJECT_DIR}/jobs-out-err" \
+         "${USER_DIR}"/{.cache/pip,tmp} \
+         "${USER_DIR}"/{.cache/conda/pkgs,conda-envs}
+
+# keep all caches/pkgs off $HOME
+export XDG_CACHE_HOME=${USER_DIR}/.cache
+export PIP_CACHE_DIR=${USER_DIR}/.cache/pip
+export TMPDIR=${USER_DIR}/tmp
+export CONDA_PKGS_DIRS=${USER_DIR}/.cache/conda/pkgs
+export CONDA_ENVS_PATH=${USER_DIR}/conda-envs
 
 # export PYTORCH_KERNEL_CACHE_PATH="${PROJECT_DIR}/cache"
 # export TORCH_KERNEL_CACHE_DIR="${PROJECT_DIR}/cache"
@@ -27,16 +45,6 @@ export PROJECT_DIR="${USER_DIR}/sd3.5"
 # export WANDB_CONFIG_DIR="${PROJECT_DIR}/cache/wandb/"
 # export WANDB_TEMP_DIR="${PROJECT_DIR}/cache/wandb/"
 # export WANDB_DATA_DIR="${PROJECT_DIR}/cache/wandb/"
-
-export CUDA_HOME=/usr/local/cuda
-export PATH=${CUDA_HOME}/bin:${PATH}
-export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
-
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash ./Miniconda3-latest-Linux-x86_64.sh -b -p ${USER_DIR}/miniconda3
-
-export PATH="${USER_DIR}/miniconda3/bin:${PATH}"
-export CONDA_PLUGINS_AUTO_ACCEPT_TOS=true
 
 conda env remove -n myenv -y || true
 conda env create -f ${PROJECT_DIR}/environment.yml -y 
@@ -64,3 +72,7 @@ conda clean -afy
 #                     --ckpt_dir ./Wan2.1-T2V-1.3B \
 #                     --prompts "A woman performing an intricate dance on stage, illuminated by a single spotlight in the first frame."   \
 #                     --seeds 1024 
+
+# prove CUDA works & show torch version
+conda run -p "${ENV_PREFIX}" bash -lc 'python -c "import torch; print(torch.__version__); import flash_attn; print(\"flash-attn OK\")"'
+nvidia-smi
