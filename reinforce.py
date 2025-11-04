@@ -287,12 +287,12 @@ class PolicyBank(nn.Module):
         delta_rms = delta.norm(p=2) / math.sqrt(delta.numel())
         latent_rms = latent_rms.clamp_min(1e-6)
         delta_rms = delta_rms.clamp_min(1e-6)
-                
-        target_rms = sigma_t * self.action_alpha * latent_rms
-        scale = (target_rms / delta_rms).clamp(max=1.0)
+
+        target_rms = sigma_t * self.action_alpha 
+        scale = (target_rms / delta_rms)
         delta = delta * scale
 
-        return (latent + delta).to(latent.dtype)
+        return (latent.float() + delta).to(latent.dtype)
 
     def reset_policies(self, latent: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], schedule: Sequence[int]):
         # force construction/sizing for initial latent shape
