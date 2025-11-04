@@ -57,7 +57,6 @@ def main(args):
         mode=args.action_mode,
         cfg_scale=args.cfg_scale,
         steps=args.steps,
-        max_grad_norm=args.max_grad_norm,
     )
 
     # Frozen SD3.5

@@ -419,7 +419,15 @@ class Config:
     height: int = 1024
     save_tensor_logs: bool = False
 
-
+    latent_encoding_dim: int = 128
+    cond_encoding_dim: int = 32
+    action_dim_basis: int = 64
+    action_alpha: float = 0.01
+    state_alpha: float = 0.001
+    mode: str = "basis_delta"
+    cfg_scale: float = 4.5
+    steps: int = 28
+    
 class GRPOTrainer:
     """
     For each (prompt, seed, t): sample G actions (group), compute rewards, normalise advantages,
