@@ -1,8 +1,8 @@
 #! /bin/sh
 
 #SBATCH --job-name=conda_install
-#SBATCH --output=/home/ai_center/ai_users/itaytuviah/video-motion/jobs-out-err/%x-%j.out
-#SBATCH --error=/home/ai_center/ai_users/itaytuviah/video-motion/jobs-out-err/%x-%j.err
+#SBATCH --output=/wolflab/itaytuviah/sd3.5/jobs-out-err/%x-%j.out
+#SBATCH --error=/wolflab/itaytuviah/sd3.5/jobs-out-err/%x-%j.err
 #SBATCH --open-mode=append      # Append instead of overwriting logs
 #SBATCH --time=1500 # max time (minutes)
 #SBATCH --gres=gpu:1
