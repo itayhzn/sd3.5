@@ -48,102 +48,6 @@ def make_mlp(in_dim: int, out_dim: int, hidden: int = 256) -> nn.Sequential:
         nn.Linear(hidden, out_dim),
     )
 
-
-# ------------------ state builder ------------------
-
-class StateBuilder:
-    """
-    s_t = concat( latent.flatten(), [sigma_t], [cfg_scale] )
-    """
-    def __init__(self, latent_encoding_dim = 128, cond_encoding_dim = 32, device: str = "cuda"):
-        self.device = device
-        self.cond_orthonormal_basis = None
-        self.latent_encoding_dim = latent_encoding_dim
-        self.cond_encoding_dim = cond_encoding_dim
-
-    @torch.no_grad()
-    def _normalize(self, t: torch.Tensor) -> torch.Tensor:
-        return (t - t.mean()) / (t.std(unbiased=False).clamp_min(1e-6))
-
-    @torch.no_grad()
-    def _encode_latent(self, latent: torch.Tensor) -> torch.Tensor:
-        # placeholder for possible future encoding of latent + cond
-        x = latent.detach().to(self.device, dtype=torch.float32)
-        if x.dim() == 4 and x.size(0) == 1:
-            x = x.squeeze(0)            # (C, H, W)
-        if x.dim() == 3:
-            # reduce channels with mean; (you can try std or [mean,std] concat later)
-            x = x.mean(dim=0)           # (H, W)
-        elif x.dim() == 2:
-            pass                        # already (H, W)
-        else:
-            raise ValueError(f"Unexpected latent shape for state: {tuple(latent.shape)}")
-
-        H, W = x.shape
-        # target elements, keep aspect, and do not upsample
-        target_elems = self.latent_encoding_dim
-        scale = min(1.0, math.sqrt(target_elems / max(1, H * W)))
-        h_new = max(1, int(H * scale))
-        w_new = max(1, int(W * scale))
-
-        # downsample
-        x = F.adaptive_avg_pool2d(x.unsqueeze(0).unsqueeze(0), output_size=(h_new, w_new)) \
-                .squeeze(0).squeeze(0)   # (h_new, w_new)
-
-        return self._normalize(x.flatten()) 
-
-    @torch.no_grad()
-    def _encode_cond(self, cond: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        """
-        Accepts:
-          - tuple: (seq_embeddings, pooled)
-          - dict:  {"c_crossattn": seq_embeddings, "y": pooled}
-        Returns a normalized vector of shape [cond_encoding_dim].
-        """
-        # 1) unify to (seq, pooled) 
-        seq = None
-        pooled = None
-        if isinstance(cond, tuple) and len(cond) == 2:
-            seq, pooled = cond
-        elif isinstance(cond, dict):
-            seq = cond.get("c_crossattn", None)
-            pooled = cond.get("y", None)
-        else:
-            raise TypeError(f"Unsupported cond type: {type(cond)}")
-
-        if self.cond_orthonormal_basis is None or self.cond_orthonormal_basis.shape[0] != pooled.numel():
-            self.cond_orthonormal_basis = orthonormal_basis(
-                pooled.numel(),
-                self.cond_encoding_dim,
-                device=self.device,
-                dtype=torch.float32,
-            )  # (D_cond, k)
-        flat = pooled.detach().to(self.device, dtype=torch.float32).flatten()  # (D_cond,)
-        encoded = self.cond_orthonormal_basis.T @ flat  # (k,)
-
-        return self._normalize(encoded)
-
-    @torch.no_grad()
-    def build(self, latent: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], sigma_t: float, cfg_scale: float) -> torch.Tensor:
-        # latent: (B=1, C=16, H, W) in SD3.5
-        x_enc = self._encode_latent(latent)
-        cond_enc = self._encode_cond(cond)
-        
-        # add log-sigma and cfg
-        sigma_feat = torch.tensor([math.log(max(1e-8, float(sigma_t)))],
-                                  device=self.device, dtype=torch.float32)
-        cfg_feat = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
-
-        s = torch.cat([
-            x_enc, 
-            cond_enc, 
-            sigma_feat, 
-            cfg_feat
-        ], dim=0)  # (≈66,)
-
-        return s
-
-
 # ------------------ per-step policy ------------------
 
 class StepPolicy(nn.Module):
@@ -180,10 +84,11 @@ class StepPolicy(nn.Module):
         self.init_log_std = init_log_std
 
         # for basis mode + size tracking
-        self.basis: Optional[torch.Tensor] = None
         self.latent_dim: Optional[int] = None
         self.log_idx = 0
         self.save_tensor_logs = save_tensor_logs
+
+        self.register_buffer("basis", torch.empty(0), persistent=True)
 
     def _rebuild_actor(self, state_dim: int, D: int):
         if self.mode == "latent_delta":
@@ -250,7 +155,7 @@ class StepPolicy(nn.Module):
 
 class PolicyBank(nn.Module):
     """
-    Independent StepPolicy for each t. Also holds StateBuilder.
+    Independent StepPolicy for each t.
     """
     def __init__(
         self,
@@ -261,7 +166,9 @@ class PolicyBank(nn.Module):
         hidden: int = 256,
         device: str = "cuda",
         out_dir: str = "outputs/grpo",
-        save_tensor_logs: bool = False
+        save_tensor_logs: bool = False,
+        latent_encoding_dim: int = 128,
+        cond_encoding_dim: int = 32,
     ):
         super().__init__()
         self.mode = mode
@@ -272,8 +179,10 @@ class PolicyBank(nn.Module):
         self.device = device
         self.out_dir = out_dir
         self.bank = nn.ModuleDict()  # keyed by str(t)
-        self.state_builder = StateBuilder(device=device)
         self.save_tensor_logs = save_tensor_logs
+        self.latent_encoding_dim = latent_encoding_dim
+        self.cond_encoding_dim = cond_encoding_dim
+        self.register_buffer("cond_basis", torch.empty(0), persistent=True)
         
     def policy(self, t: int) -> StepPolicy:
         key = str(int(t))
@@ -288,20 +197,81 @@ class PolicyBank(nn.Module):
                 save_tensor_logs=self.save_tensor_logs,
             )
         return self.bank[key]
+    
+    def ensure_cond_basis(self, D_in: int):
+        if self.cond_basis.numel() == 0 or self.cond_basis.shape[0] != D_in or self.cond_basis.shape[1] != self.cond_encoding_dim:
+            self.cond_basis = orthonormal_basis(D_in, self.cond_encoding_dim, device=self.device, dtype=torch.float32)
+
+    def _encode_cond(self, cond: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        seq, pooled = None, None
+        if isinstance(cond, tuple) and len(cond) == 2:
+            seq, pooled = cond
+        elif isinstance(cond, dict):
+            seq = cond.get("c_crossattn", None)
+            pooled = cond.get("y", None)
+        else:
+            raise TypeError(f"Unsupported cond type: {type(cond)}")
+        
+        v = pooled if torch.is_tensor(pooled) else (seq.mean(dim=-2) if seq.dim() >= 2 else seq)
+        v = v.detach().to(self.device, dtype=torch.float32).flatten()
+        self.ensure_cond_basis(v.numel())
+        enc = self.cond_basis.T @ v
+        return enc / (enc.norm(p=2) + 1e-8)
+
+    @torch.no_grad()
+    def _normalize(self, t: torch.Tensor) -> torch.Tensor:
+        return (t - t.mean()) / (t.std(unbiased=False).clamp_min(1e-6))
+
+    @torch.no_grad()
+    def _encode_latent(self, latent: torch.Tensor) -> torch.Tensor:
+        # placeholder for possible future encoding of latent + cond
+        x = latent.detach().to(self.device, dtype=torch.float32)
+        if x.dim() == 4 and x.size(0) == 1:
+            x = x.squeeze(0)            # (C, H, W)
+        if x.dim() == 3:
+            # reduce channels with mean; (you can try std or [mean,std] concat later)
+            x = x.mean(dim=0)           # (H, W)
+        elif x.dim() == 2:
+            pass                        # already (H, W)
+        else:
+            raise ValueError(f"Unexpected latent shape for state: {tuple(latent.shape)}")
+
+        H, W = x.shape
+        # target elements, keep aspect, and do not upsample
+        scale = min(1.0, math.sqrt(self.latent_encoding_dim / max(1, H * W)))
+        h_new = max(1, int(H * scale))
+        w_new = max(1, int(W * scale))
+
+        # downsample
+        x = F.adaptive_avg_pool2d(x.unsqueeze(0).unsqueeze(0), output_size=(h_new, w_new)) \
+                .squeeze(0).squeeze(0)   # (h_new, w_new)
+
+        return self._normalize(x.flatten()) 
 
     def get_state(self, latent_t: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         if generator is not None:
-            noisy_latent = latent_t.detach() + self.state_alpha * torch.randn(latent_t.shape, device=latent_t.device, dtype=latent_t.dtype, generator=generator)
+            _latent = latent_t.detach() + self.state_alpha * torch.randn(latent_t.shape, device=latent_t.device, dtype=latent_t.dtype, generator=generator)
             if self.save_tensor_logs:
-                save_tensor(noisy_latent, f"{self.out_dir}/tensors/noisy_latent_t{int(sigma_t*1000):03d}.pt")
+                save_tensor(_latent, f"{self.out_dir}/tensors/noisy_latent_t{int(sigma_t*1000):03d}.pt")
         else:
-            noisy_latent = latent_t.detach()
+            _latent = latent_t.detach()
 
-        s_t = self.state_builder.build(noisy_latent, cond, sigma_t, cfg_scale).to(self.device)
+        latent_enc = self._encode_latent(_latent)
+        cond_enc = self._encode_cond(cond)
+
+        # add log-sigma and cfg
+        sigma_feat = torch.tensor([math.log(max(1e-8, float(sigma_t)))],
+                                  device=self.device, dtype=torch.float32)
+        cfg_feat = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
+
+        s_t = torch.cat([latent_enc, cond_enc, sigma_feat, cfg_feat], dim=0)
+
         if self.save_tensor_logs:
             save_tensor(s_t, f"{self.out_dir}/tensors/state_t{int(sigma_t*1000):03d}.pt")
+        
         pol = self.policy(t)
         pol.ensure_shapes(latent_t, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
+        
         return s_t
 
     def apply_action(self, latent: torch.Tensor, a: torch.Tensor, t: int) -> torch.Tensor:
@@ -321,7 +291,7 @@ class PolicyBank(nn.Module):
 
     def reset_policies(self, latent: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], schedule: Sequence[int]):
         # force construction/sizing for initial latent shape
-        s_t = self.state_builder.build(latent, cond, sigma_t=1.0, cfg_scale=1.0).to(self.device)
+        s_t = self.get_state(latent, cond, sigma_t=1.0, cfg_scale=1.0).to(self.device)
         for t in schedule:
             self.policy(t).ensure_shapes(latent, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
 

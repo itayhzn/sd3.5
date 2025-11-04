@@ -24,11 +24,6 @@ export CUDA_HOME=/usr/local/cuda
 export PATH=${CUDA_HOME}/bin:${PATH}
 export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 
-# make sure paths exist
-mkdir -p "${PROJECT_DIR}/jobs-out-err" \
-         "${USER_DIR}"/{.cache/pip,tmp} \
-         "${USER_DIR}"/{.cache/conda/pkgs,conda-envs}
-
 # keep all caches/pkgs off $HOME
 export XDG_CACHE_HOME=${USER_DIR}/.cache
 export PIP_CACHE_DIR=${USER_DIR}/.cache/pip
@@ -46,27 +41,6 @@ export CONDA_ENVS_PATH=${USER_DIR}/conda-envs
 # export WANDB_TEMP_DIR="${PROJECT_DIR}/cache/wandb/"
 # export WANDB_DATA_DIR="${PROJECT_DIR}/cache/wandb/"
 
-conda env remove -n myenv -y || true
-conda env create -f ${PROJECT_DIR}/environment.yml -y 
-conda clean -afy
-
-if command -v nvcc >/dev/null 2>&1; then \
-    echo "✅ CUDA detected — installing flash-attn..." && \
-    CUDA_HOME=/usr/local/cuda \
-    # conda run -n myenv pip install flash-attn --no-build-isolation --no-cache-dir; \
-    conda run -n myenv python -m pip install --no-cache-dir \
-    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.6cxx11abiTRUE-cp310-cp310-linux_x86_64.whl; \
-    # --no-cache-dir --find-links https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/ flash-attn==2.8.3; \
-else \
-    echo "⚠️  Skipping flash-attn install — CUDA not found"; \
-fi
-
-conda env remove -n rewardenv -y || true
-conda create -n rewardenv python=3.8 -y 
-conda run -n rewardenv pip install clip image-reward
-conda clean -afy
-
-
 # python generate.py --task t2v-1.3B \
 #                     --size 832*480 \
 #                     --ckpt_dir ./Wan2.1-T2V-1.3B \
@@ -74,5 +48,5 @@ conda clean -afy
 #                     --seeds 1024 
 
 # prove CUDA works & show torch version
-conda run -p "${ENV_PREFIX}" bash -lc 'python -c "import torch; print(torch.__version__); import flash_attn; print(\"flash-attn OK\")"'
+conda run -n myenv python -c "import torch; print(torch.__version__); import flash_attn; print(\"flash-attn OK\")"
 nvidia-smi

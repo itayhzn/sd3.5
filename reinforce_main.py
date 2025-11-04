@@ -50,7 +50,7 @@ def main(args):
     
     out_dir = os.path.join(args.out_dir, args.experiment_name)
 
-    conf = TrainConfig(
+    conf = Config(
         schedule=tuple(args.schedule),
         group_size=args.group_size,
         num_epochs=args.num_epochs,
@@ -64,6 +64,12 @@ def main(args):
         width=args.width,
         height=args.height,
         save_tensor_logs=args.save_tensor_logs,
+        latent_encoding_dim=args.latent_encoding_dim,
+        cond_encoding_dim=args.cond_encoding_dim,
+        action_dim_basis=args.action_dim_basis,
+        action_alpha=args.action_alpha,
+        state_alpha=args.state_alpha,
+        mode=args.action_mode
     )
 
     # Frozen SD3.5
@@ -86,6 +92,8 @@ def main(args):
         state_alpha=args.state_alpha,
         out_dir=out_dir,
         save_tensor_logs=args.save_tensor_logs,
+        latent_encoding_dim=args.latent_encoding_dim,
+        cond_encoding_dim=args.cond_encoding_dim,
     )
 
     trainer = GRPOTrainer(
@@ -131,6 +139,8 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=28)
     parser.add_argument("--cfg_scale", type=float, default=4.5)
     parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
+    parser.add_argument("--latent_encoding_dim", type=int, default=128)
+    parser.add_argument("--cond_encoding_dim", type=int, default=32)
     args = parser.parse_args()
     
     main(args)
