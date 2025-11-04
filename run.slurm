@@ -1,6 +1,6 @@
 #! /bin/sh
 
-#SBATCH --job-name=conda_install
+#SBATCH --job-name=sdrl
 #SBATCH --output=/wolflab/itaytuviah/sd3.5/jobs-out-err/%x-%j.out
 #SBATCH --error=/wolflab/itaytuviah/sd3.5/jobs-out-err/%x-%j.err
 #SBATCH --open-mode=append      # Append instead of overwriting logs
