@@ -11,6 +11,7 @@
 #SBATCH --qos=owner
 
 ###### ignore SBATCH --mem-per-gpu=55000
+###### salloc -A gpu-tad-users_v2 -p gpu-tad-pool --qos=owner --gres=gpu:A100:1 --time=02:00:00 --job-name=vscode && srun --pty bash
 
 srun --gres=gpu:1 nvidia-smi
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
