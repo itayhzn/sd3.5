@@ -249,26 +249,7 @@ class PolicyBank(nn.Module):
 
         return self._normalize(x.flatten()) 
 
-    def get_state(self, latent_t: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
-        if generator is not None:
-            delta = torch.randn(latent_t.shape, device=latent_t.device, dtype=torch.float32, generator=generator)
-            latent = latent_t.detach().float()
-
-            latent_rms = latent.norm(p=2) / math.sqrt(latent.numel())
-            delta_rms = delta.norm(p=2) / math.sqrt(delta.numel())
-            latent_rms = latent_rms.clamp_min(1e-6)
-            delta_rms = delta_rms.clamp_min(1e-6)
-                    
-            target_rms = sigma_t * pol.action_alpha * latent_rms
-            scale = (target_rms / delta_rms).clamp(max=1.0)
-            delta = delta * scale
-
-            latent = (latent + delta).to(latent.dtype)
-            if self.save_tensor_logs:
-                save_tensor(latent, f"{self.out_dir}/tensors/noisy_latent_t{int(sigma_t*1000):03d}.pt")
-        else:
-            latent = latent_t.detach()
-
+    def get_state(self, latent_t: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         latent_enc = self._encode_latent(latent)
         cond_enc = self._encode_cond(cond)
 
@@ -278,6 +259,22 @@ class PolicyBank(nn.Module):
         cfg_feat = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
 
         s_t = torch.cat([latent_enc, cond_enc, sigma_feat, cfg_feat], dim=0)
+
+        if generator is not None:
+            features = s_t[:-2]
+            features_rms = features.norm(p=2) / math.sqrt(features.numel())
+            features_rms = features_rms.clamp(min=1e-6)
+
+            eps = torch.randn(features.shape, device=features.device, dtype=features.dtype, generator=generator)
+            eps_rms = eps.norm(p=2) / math.sqrt(eps.numel())
+            eps_rms = eps_rms.clamp(min=1e-6)
+            eps = eps / eps_rms
+            
+            features_noisy = features.clone() + self.state_alpha * features_rms * eps
+            
+            s_t[:-2] = features_noisy 
+            if self.save_tensor_logs:
+                save_tensor(latent, f"{self.out_dir}/tensors/noisy_s_t{int(sigma_t*1000):03d}.pt")
 
         if self.save_tensor_logs:
             save_tensor(s_t, f"{self.out_dir}/tensors/state_t{int(sigma_t*1000):03d}.pt")
@@ -297,7 +294,7 @@ class PolicyBank(nn.Module):
         latent_rms = latent_rms.clamp_min(1e-6)
         delta_rms = delta_rms.clamp_min(1e-6)
                 
-        target_rms = sigma_t * pol.action_alpha * latent_rms
+        target_rms = sigma_t * self.action_alpha * latent_rms
         scale = (target_rms / delta_rms).clamp(max=1.0)
         delta = delta * scale
 
@@ -354,7 +351,7 @@ class GRPODenoiserWrapper:
             sigma_t = float(self.sigmas[min(self.t_idx, len(self.sigmas) - 1)])
             x_detach = x.detach()
             with torch.enable_grad():
-                s_t = self.bank.get_state(x_detach, cond, self.t_idx, sigma_t, self.cfg_scale, generator=self.generator)
+                s_t = self.bank.get_state(x_detach, cond, sigma_t, self.cfg_scale, generator=self.generator)
                 a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator, tag=self.tag)
 
             stats_before = {
