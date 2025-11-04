@@ -3,6 +3,7 @@
 # State = concat(latent.flatten(), [sigma_t], [cfg_scale])
 
 from dataclasses import dataclass
+import json
 from typing import Callable, Optional, Sequence, Tuple, List
 
 import math
@@ -387,7 +388,7 @@ class GRPODenoiserWrapper:
 # ------------------ trainer (GRPO) ------------------
 
 @dataclass
-class TrainConfig:
+class Config:
     # GRPO
     schedule: Tuple[int, ...] = (10, 20, 35)
     group_size: int = 4
@@ -476,8 +477,13 @@ class GRPOTrainer:
         self,
         bank: PolicyBank,
         reward_fn: Callable[[str, Image.Image], float],
-        cfg: TrainConfig,
+        cfg: Config,
     ):
+        os.makedirs(cfg.out_dir, exist_ok=True)
+        # save config 
+        with open(os.path.join(cfg.out_dir, "config.json"), "w") as f:
+            json.dump(cfg.to_dict(), f, indent=4)
+
         prompts = list(cfg.prompts)
         seeds   = list(cfg.seeds)
         generate_seeds = len(seeds) == 0
@@ -577,7 +583,6 @@ class GRPOTrainer:
                         
 
             if epoch % cfg.save_every == 0:
-                os.makedirs(cfg.out_dir, exist_ok=True)
                 ckpt = {"policy_bank": bank.state_dict(), "schedule": cfg.schedule, "epoch": epoch}
                 save_tensor(ckpt, os.path.join(cfg.out_dir, f"checkpoints/policy_bank_epoch_{epoch:02d}.pt"))
                 print(f"[GRPO] Saved checkpoint for epoch {epoch}")

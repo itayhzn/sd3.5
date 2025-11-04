@@ -6,26 +6,11 @@ import os
 from PIL import Image
 import torch
 
-from reinforce import PolicyBank, GRPOTrainer, TrainConfig
+from reinforce import PolicyBank, GRPOTrainer, Config
 from mock_scorer import MockScorer
 from sd3_infer import SD3Inferencer
 
 def str2bool(v):
-    """
-    Convert a string to a boolean.
-
-    Supported true values: 'yes', 'true', 't', 'y', '1'
-    Supported false values: 'no', 'false', 'f', 'n', '0'
-
-    Args:
-        v (str): String to convert.
-
-    Returns:
-        bool: Converted boolean value.
-
-    Raises:
-        argparse.ArgumentTypeError: If the value cannot be converted to boolean.
-    """
     if isinstance(v, bool):
         return v
     v_lower = v.lower()
@@ -69,7 +54,9 @@ def main(args):
         action_dim_basis=args.action_dim_basis,
         action_alpha=args.action_alpha,
         state_alpha=args.state_alpha,
-        mode=args.action_mode
+        mode=args.action_mode,
+        cfg_scale=args.cfg_scale,
+        steps=args.steps,
     )
 
     # Frozen SD3.5
