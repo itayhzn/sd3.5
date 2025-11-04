@@ -5,7 +5,7 @@
 #SBATCH --error=/home/ai_center/ai_users/itaytuviah/video-motion/jobs-out-err/%x-%j.err
 #SBATCH --open-mode=append      # Append instead of overwriting logs
 #SBATCH --time=1500 # max time (minutes)
-#SBATCH --gpus=1
+#SBATCH --gres=gpu:1
 #SBATCH --partition=gpu-tad-pool
 
 ###### ignore SBATCH --mem-per-gpu=55000
@@ -15,7 +15,7 @@
 # srun --gres=gpu:1 nvidia-smi
 # echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 
-export USER_DIR="/a/home/cc/students/csguests/itaytuviah"
+export USER_DIR="/wolflab/itaytuviah"
 export PROJECT_DIR="${USER_DIR}/sd3.5"
 
 # export PYTORCH_KERNEL_CACHE_PATH="${PROJECT_DIR}/cache"
