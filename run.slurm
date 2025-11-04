@@ -5,7 +5,7 @@
 #SBATCH --error=/wolflab/itaytuviah/sd3.5/jobs-out-err/%x-%j.err
 #SBATCH --open-mode=append      # Append instead of overwriting logs
 #SBATCH --time=1500 # max time (minutes)
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:A100:1
 #SBATCH --partition=gpu-tad-pool
 
 ###### ignore SBATCH --mem-per-gpu=55000
