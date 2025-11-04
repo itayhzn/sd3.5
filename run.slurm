@@ -9,11 +9,9 @@
 #SBATCH --partition=gpu-tad-pool
 
 ###### ignore SBATCH --mem-per-gpu=55000
-###### ignore SBATCH --gpus=0
-###### ignore SBATCH --constraint=h100
 
-# srun --gres=gpu:1 nvidia-smi
-# echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
+srun --gres=gpu:1 nvidia-smi
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 
 export USER_DIR="/wolflab/itaytuviah"
 export PROJECT_DIR="${USER_DIR}/sd3.5"
@@ -31,22 +29,5 @@ export TMPDIR=${USER_DIR}/tmp
 export CONDA_PKGS_DIRS=${USER_DIR}/.cache/conda/pkgs
 export CONDA_ENVS_PATH=${USER_DIR}/conda-envs
 
-# export PYTORCH_KERNEL_CACHE_PATH="${PROJECT_DIR}/cache"
-# export TORCH_KERNEL_CACHE_DIR="${PROJECT_DIR}/cache"
-# export HF_HOME="${PROJECT_DIR}/cache"
-# export TRANSFORMERS_CACHE="${PROJECT_DIR}/cache"
-# export WANDB_CACHE_DIR="${PROJECT_DIR}/cache"
-# export WANDB_DIR="${PROJECT_DIR}/cache/wandb/"
-# export WANDB_CONFIG_DIR="${PROJECT_DIR}/cache/wandb/"
-# export WANDB_TEMP_DIR="${PROJECT_DIR}/cache/wandb/"
-# export WANDB_DATA_DIR="${PROJECT_DIR}/cache/wandb/"
 
-# python generate.py --task t2v-1.3B \
-#                     --size 832*480 \
-#                     --ckpt_dir ./Wan2.1-T2V-1.3B \
-#                     --prompts "A woman performing an intricate dance on stage, illuminated by a single spotlight in the first frame."   \
-#                     --seeds 1024 
-
-# prove CUDA works & show torch version
-conda run -n myenv python -c "import torch; print(torch.__version__); import flash_attn; print(\"flash-attn OK\")"
-nvidia-smi
+conda run -n myenv python reinforce_main.py --num_epochs 20 --seeds 23 --state_alpha 0.001 --action_alpha 0.01 --experiment_name g8_sa001_aa001 --group_size 8 --out_dir "outputs/grpo-new"

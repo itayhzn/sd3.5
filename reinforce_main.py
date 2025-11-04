@@ -57,6 +57,7 @@ def main(args):
         mode=args.action_mode,
         cfg_scale=args.cfg_scale,
         steps=args.steps,
+        max_grad_norm=args.max_grad_norm,
     )
 
     # Frozen SD3.5
@@ -128,6 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
     parser.add_argument("--latent_encoding_dim", type=int, default=128)
     parser.add_argument("--cond_encoding_dim", type=int, default=32)
+    parser.add_argument("--max_grad_norm", type=float, default=1.0)
     args = parser.parse_args()
     
     main(args)

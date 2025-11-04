@@ -128,7 +128,7 @@ class StepPolicy(nn.Module):
         params = self.actor(state)  # (2*A,)
         A = params.numel() // 2
         mu, log_std = params[:A], params[A:]
-        std = log_std.exp().clamp(min=1e-5, max=1)
+        std = log_std.exp().clamp(min=1e-3, max=0.2)
         mu = mu.clamp(min=-1, max=1)
 
         if generator is None:
@@ -251,13 +251,25 @@ class PolicyBank(nn.Module):
 
     def get_state(self, latent_t: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         if generator is not None:
-            _latent = latent_t.detach() + self.state_alpha * torch.randn(latent_t.shape, device=latent_t.device, dtype=latent_t.dtype, generator=generator)
-            if self.save_tensor_logs:
-                save_tensor(_latent, f"{self.out_dir}/tensors/noisy_latent_t{int(sigma_t*1000):03d}.pt")
-        else:
-            _latent = latent_t.detach()
+            delta = torch.randn(latent_t.shape, device=latent_t.device, dtype=torch.float32, generator=generator)
+            latent = latent_t.detach().float()
 
-        latent_enc = self._encode_latent(_latent)
+            latent_rms = latent.norm(p=2) / math.sqrt(latent.numel())
+            delta_rms = delta.norm(p=2) / math.sqrt(delta.numel())
+            latent_rms = latent_rms.clamp_min(1e-6)
+            delta_rms = delta_rms.clamp_min(1e-6)
+                    
+            target_rms = sigma_t * pol.action_alpha * latent_rms
+            scale = (target_rms / delta_rms).clamp(max=1.0)
+            delta = delta * scale
+
+            latent = (latent + delta).to(latent.dtype)
+            if self.save_tensor_logs:
+                save_tensor(latent, f"{self.out_dir}/tensors/noisy_latent_t{int(sigma_t*1000):03d}.pt")
+        else:
+            latent = latent_t.detach()
+
+        latent_enc = self._encode_latent(latent)
         cond_enc = self._encode_cond(cond)
 
         # add log-sigma and cfg
@@ -275,18 +287,19 @@ class PolicyBank(nn.Module):
         
         return s_t
 
-    def apply_action(self, latent: torch.Tensor, a: torch.Tensor, t: int) -> torch.Tensor:
+    def apply_action(self, latent: torch.Tensor, a: torch.Tensor, t: int, sigma_t: float) -> torch.Tensor:
         pol = self.policy(t)
-        if pol.mode == "latent_delta":
-            delta = a.reshape_as(latent)
-        else:
-            flat = pol.basis @ a
-            delta = flat.view_as(latent)
+        flat = (a if self.mode == "latent_delta" else pol.basis @ a)
+        delta = flat.view_as(latent).float()
 
-        D = delta.numel()
-        target_l2 = math.sqrt(D) * pol.action_alpha
-        delta = delta.float()
-        delta = delta * (target_l2 / delta.norm(p=2).clamp_min(1e-8))
+        latent_rms = latent.norm(p=2) / math.sqrt(latent.numel())
+        delta_rms = delta.norm(p=2) / math.sqrt(delta.numel())
+        latent_rms = latent_rms.clamp_min(1e-6)
+        delta_rms = delta_rms.clamp_min(1e-6)
+                
+        target_rms = sigma_t * pol.action_alpha * latent_rms
+        scale = (target_rms / delta_rms).clamp(max=1.0)
+        delta = delta * scale
 
         return (latent + delta).to(latent.dtype)
 
@@ -350,7 +363,7 @@ class GRPODenoiserWrapper:
                 "mean": x_detach.mean().item(),
                 "std": x_detach.std().item(),
             }
-            x = self.bank.apply_action(x_detach, a_t.detach(), self.t_idx)
+            x = self.bank.apply_action(x_detach, a_t.detach(), self.t_idx, sigma_t)
             stats_after = {
                 "min": x.min().item(),
                 "max": x.max().item(),
@@ -557,6 +570,9 @@ class GRPOTrainer:
 
                         normalized_rewards = torch.tensor(rewards, device=bank.device, dtype=torch.float32)
                         normalized_rewards = (normalized_rewards - normalized_rewards.mean()) / normalized_rewards.std(unbiased=False).clamp_min(1e-6)  # (G,)
+                        normalized_rewards = normalized_rewards.clamp(min=-3.0, max=3.0)
+                        torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
+
 
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
                         last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
