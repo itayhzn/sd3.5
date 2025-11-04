@@ -249,8 +249,8 @@ class PolicyBank(nn.Module):
 
         return self._normalize(x.flatten()) 
 
-    def get_state(self, latent_t: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
-        latent_enc = self._encode_latent(latent)
+    def get_state(self, latent_t: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], t: int, sigma_t: float, cfg_scale: float, generator: Optional[torch.Generator] = None) -> torch.Tensor:
+        latent_enc = self._encode_latent(latent_t)
         cond_enc = self._encode_cond(cond)
 
         # add log-sigma and cfg
@@ -259,7 +259,7 @@ class PolicyBank(nn.Module):
         cfg_feat = torch.tensor([float(cfg_scale)], device=self.device, dtype=torch.float32)
 
         s_t = torch.cat([latent_enc, cond_enc, sigma_feat, cfg_feat], dim=0)
-
+        
         if generator is not None:
             features = s_t[:-2]
             features_rms = features.norm(p=2) / math.sqrt(features.numel())
@@ -271,14 +271,8 @@ class PolicyBank(nn.Module):
             eps = eps / eps_rms
             
             features_noisy = features.clone() + self.state_alpha * features_rms * eps
-            
-            s_t[:-2] = features_noisy 
-            if self.save_tensor_logs:
-                save_tensor(latent, f"{self.out_dir}/tensors/noisy_s_t{int(sigma_t*1000):03d}.pt")
+            s_t[:-2] = features_noisy
 
-        if self.save_tensor_logs:
-            save_tensor(s_t, f"{self.out_dir}/tensors/state_t{int(sigma_t*1000):03d}.pt")
-        
         pol = self.policy(t)
         pol.ensure_shapes(latent_t, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
         
@@ -302,7 +296,7 @@ class PolicyBank(nn.Module):
 
     def reset_policies(self, latent: torch.Tensor, cond: Tuple[torch.Tensor, torch.Tensor], schedule: Sequence[int]):
         # force construction/sizing for initial latent shape
-        s_t = self.get_state(latent, cond, sigma_t=1.0, cfg_scale=1.0).to(self.device)
+        s_t = self.get_state(latent, cond, t=1, sigma_t=1.0, cfg_scale=1.0).to(self.device)
         for t in schedule:
             self.policy(t).ensure_shapes(latent, state_dim=s_t.numel(), action_dim_basis=self.action_dim_basis)
 
@@ -351,7 +345,7 @@ class GRPODenoiserWrapper:
             sigma_t = float(self.sigmas[min(self.t_idx, len(self.sigmas) - 1)])
             x_detach = x.detach()
             with torch.enable_grad():
-                s_t = self.bank.get_state(x_detach, cond, sigma_t, self.cfg_scale, generator=self.generator)
+                s_t = self.bank.get_state(x_detach, cond, t=self.t_idx, sigma_t=sigma_t, cfg_scale=self.cfg_scale, generator=self.generator)
                 a_t, logp_t = self.bank.policy(self.t_idx).sample(s_t, generator=self.generator, tag=self.tag)
 
             stats_before = {
