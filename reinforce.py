@@ -583,8 +583,8 @@ class GRPOTrainer:
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
                         last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
                         action_dim = last_linear.out_features // 2
-                        
-                        kld = 0.0
+
+                        kld = torch.tensor(0.0, device=bank.device)
                         if previous_logp is not None:
                             kld = (previous_logp - logp_tensor).mean()
                         previous_logp = logp_tensor.detach().clone()
@@ -604,8 +604,8 @@ class GRPOTrainer:
                             "normalized_advantages": normalized_advantages.tolist(),
                             "normalized_rewards": normalized_rewards.tolist(),
                             "logps": logp_tensor.tolist(),
-                            "kld": kld,
-                            "logp_entropy": logp_entropy,
+                            "kld": kld.item(),
+                            "logp_entropy": logp_entropy.item(),
                             "loss": loss.item(),
                         }, f"{cfg.out_dir}/logs/training_log_group.log")
 
