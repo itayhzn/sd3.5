@@ -176,18 +176,20 @@ def run_experiment(
     verbose: bool = False,
 ):
     out_dir.mkdir(parents=True, exist_ok=True)
+    params_encoding = f'sl{seed_low}_ha{seed_high_a}_hb{seed_high_b}_cf{cutoff_frac:.2f}'
 
     infer = sd3i.SD3Inferencer()
-    infer.load(
-        model=model,
-        vae=vae,
-        shift=3.0,
-        controlnet_ckpt=None,
-        model_folder=os.path.dirname(model) or ".",
-        text_encoder_device=text_encoder_device,
-        verbose=verbose,
-        load_tokenizers=True,
-    )
+    with torch.no_grad():
+        infer.load(
+            model=model,
+            vae=vae,
+            shift=3.0,
+            controlnet_ckpt=None,
+            model_folder=os.path.dirname(model) or ".",
+            text_encoder_device=text_encoder_device,
+            verbose=verbose,
+            load_tokenizers=True,
+        )
 
     latent = infer.get_empty_latent(1, width, height, seed_low, "cpu")
     cond = infer.get_cond(prompt)
@@ -210,12 +212,12 @@ def run_experiment(
         A = (255.0 * (A - A.min()) / (A.ptp() + 1e-8)).astype(np.uint8)
         return A
 
-    Image.fromarray(amp_spectrum_channel0(n_low_source)).save(out_dir / "amp_low_source.png")
-    Image.fromarray(amp_spectrum_channel0(nA)).save(out_dir / "amp_highA_full.png")
-    Image.fromarray(amp_spectrum_channel0(nB)).save(out_dir / "amp_highB_full.png")
-    Image.fromarray(amp_spectrum_channel0(noise_A)).save(out_dir / "amp_composed_A.png")
-    Image.fromarray(amp_spectrum_channel0(noise_B)).save(out_dir / "amp_composed_B.png")
-    Image.fromarray(amp_spectrum_channel0(low_shared)).save(out_dir / "amp_low_shared.png")
+    Image.fromarray(amp_spectrum_channel0(n_low_source)).save(out_dir / f"{params_encoding}_amp_low_source.png")
+    Image.fromarray(amp_spectrum_channel0(nA)).save(out_dir / f"{params_encoding}_amp_highA_full.png")
+    Image.fromarray(amp_spectrum_channel0(nB)).save(out_dir / f"{params_encoding}_amp_highB_full.png")
+    Image.fromarray(amp_spectrum_channel0(noise_A)).save(out_dir / f"{params_encoding}_amp_composed_A.png")
+    Image.fromarray(amp_spectrum_channel0(noise_B)).save(out_dir / f"{params_encoding}_amp_composed_B.png")
+    Image.fromarray(amp_spectrum_channel0(low_shared)).save(out_dir / f"{params_encoding}_amp_low_shared.png")
     
     # Sample
     latA = sample_with_custom_noise(infer, latent, noise_A, cond, neg_cond, steps, cfg, sampler, None, 1.0)
@@ -224,8 +226,8 @@ def run_experiment(
     # Decode and save
     imgA = infer.vae_decode(latA)
     imgB = infer.vae_decode(latB)
-    imgA_path = out_dir / "result_A.png"
-    imgB_path = out_dir / "result_B.png"
+    imgA_path = out_dir / f"{params_encoding}_result_A.png"
+    imgB_path = out_dir / f"{params_encoding}_result_B.png"
     imgA.save(imgA_path)
     imgB.save(imgB_path)
 
@@ -236,8 +238,26 @@ def run_experiment(
     psnr_val = psnr(mse_val)
 
     side = np.concatenate([A, B], axis=1)
-    save_image(side, out_dir / "compare_side_by_side.png")
+    save_image(side, out_dir / f"{params_encoding}_compare_side_by_side.png")
 
+    # plot a grid of 2x2: spectrum of A, spectrum of B, image A, image B
+    import matplotlib.pyplot as plt
+    fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+    axs[0, 0].imshow(amp_spectrum_channel0(noise_A), cmap='gray', vmin=0, vmax=255)
+    axs[0, 0].set_title('Amplitude Spectrum A')
+    axs[0, 0].axis('off')
+    axs[0, 1].imshow(amp_spectrum_channel0(noise_B), cmap='gray', vmin=0, vmax=255)
+    axs[0, 1].set_title('Amplitude Spectrum B')
+    axs[0, 1].axis('off')
+    axs[1, 0].imshow(A)
+    axs[1, 0].set_title('Image A')
+    axs[1, 0].axis('off')
+    axs[1, 1].imshow(B)
+    axs[1, 1].set_title('Image B')
+    axs[1, 1].axis('off')
+    plt.tight_layout()
+    plt.savefig(out_dir / f"{params_encoding}_summary_plot.png", dpi=300)
+    
     report = {
         "prompt": prompt,
         "width": width,
@@ -252,26 +272,34 @@ def run_experiment(
         "mse": mse_val,
         "psnr": psnr_val,
         "images": {
+            "low_source": str(out_dir / f"{params_encoding}_amp_low_source.png"),
+            "low_shared": str(out_dir / f"{params_encoding}_amp_low_shared.png"),
+            "highA": str(out_dir / f"{params_encoding}_amp_highA_full.png"),
+            "highB": str(out_dir / f"{params_encoding}_amp_highB_full.png"),
+            "composed_A": str(out_dir / f"{params_encoding}_amp_composed_A.png"),
+            "composed_B": str(out_dir / f"{params_encoding}_amp_composed_B.png"),
             "A": str(imgA_path),
             "B": str(imgB_path),
-            "side_by_side": str(out_dir / "compare_side_by_side.png"),
+            "side_by_side": str(out_dir / f"{params_encoding}_compare_side_by_side.png"),
+            "summary_plot": str(out_dir / f"{params_encoding}_summary_plot.png"),
         },
     }
-    with open(out_dir / "report.json", "w") as f:
+    with open(out_dir / f"{params_encoding}_report.json", "w") as f:
         json.dump(report, f, indent=2)
 
     print(json.dumps(report, indent=2))
     print(f"\nSaved outputs to: {out_dir}")
 
 
+
 def main():
     p = argparse.ArgumentParser("Low-frequency hypothesis test for SD3.5 initial noise")
-    p.add_argument("--prompt", type=str, required=True, default="a studio photo of a ginger cat, soft light")
-    p.add_argument("--model", type=str, required=True, help="Path to sd3.5 model .safetensors", default="models/sd3.5_medium.safetensors")
-    p.add_argument("--clip_g", type=str, required=False, default=None, help="Path to clip_g.safetensors (if not in folder)", default="models/clip_g.safetensors")
-    p.add_argument("--clip_l", type=str, required=False, default=None, help="Path to clip_l.safetensors (if not in folder)", default="models/clip_l.safetensors")
-    p.add_argument("--t5", type=str, required=False, default=None, help="Path to t5xxl.safetensors (if not in folder)", default="models/t5xxl.safetensors")
-    p.add_argument("--vae", type=str, required=True, help="Path to sd3_vae.safetensors", default="models/sd3.5_medium.safetensors")
+    p.add_argument("--prompt", type=str, default="a studio photo of a ginger cat, soft light")
+    p.add_argument("--model", type=str, help="Path to sd3.5 model .safetensors", default="models/sd3.5_medium.safetensors")
+    p.add_argument("--clip_g", type=str, help="Path to clip_g.safetensors (if not in folder)", default="models/clip_g.safetensors")
+    p.add_argument("--clip_l", type=str, help="Path to clip_l.safetensors (if not in folder)", default="models/clip_l.safetensors")
+    p.add_argument("--t5", type=str, help="Path to t5xxl.safetensors (if not in folder)", default="models/t5xxl.safetensors")
+    p.add_argument("--vae", type=str, help="Path to sd3_vae.safetensors", default="models/sd3.5_medium.safetensors")
     p.add_argument("--width", type=int, default=1024)
     p.add_argument("--height", type=int, default=1024)
     p.add_argument("--steps", type=int, default=30)
