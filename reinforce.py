@@ -521,6 +521,8 @@ class GRPOTrainer:
         print("Training configuration:")
         print(cfg)
 
+        previous_logp = None
+
         for epoch in range(1, cfg.num_epochs + 1):
             for t in cfg.schedule:
                 for i, pr in enumerate(prompts):
@@ -579,7 +581,16 @@ class GRPOTrainer:
                         logp_tensor = torch.stack(logps, dim=0)  # (G,)
                         last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
                         action_dim = last_linear.out_features // 2
-                        loss = -(normalized_rewards.detach() * (logp_tensor / max(1, action_dim))).mean()
+                        
+                        kld = 0.0
+                        if previous_logp is not None:
+                            kld = (previous_logp - logp_tensor).mean()
+                        previous_logp = logp_tensor.detach().clone()
+
+                        logp_entropy = -((-0.5 * (((logp_tensor) ** 2) + math.log(2 * math.pi))).mean())
+
+                        loss = -(normalized_rewards.detach() * (logp_tensor / max(1, action_dim))).mean() + 0.1 * kld - 0.01 * logp_entropy
+
                         logger({
                             "epoch": epoch,
                             "t": t,
@@ -591,6 +602,8 @@ class GRPOTrainer:
                             "normalized_advantages": normalized_advantages.tolist(),
                             "normalized_rewards": normalized_rewards.tolist(),
                             "logps": logp_tensor.tolist(),
+                            "kld": kld.item(),
+                            "logp_entropy": logp_entropy.item(),
                             "loss": loss.item(),
                         }, f"{cfg.out_dir}/logs/training_log_group.log")
 
