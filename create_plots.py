@@ -107,7 +107,7 @@ def read_dfs(dirname):
 
     return df, policy_df
 
-def create_metrics_plot(dirname, dfs):
+def create_metrics_plot(dirname, dfs, plots_dir):
     df, policy_df = dfs
 
     metrics = df['metric'].unique()
@@ -138,9 +138,9 @@ def create_metrics_plot(dirname, dfs):
         ax.set_ylabel(metric)
     plt.suptitle(f'Metrics for {dirname}', fontsize=16)
     plt.tight_layout()
-    plt.savefig(f'{dirname}/plots/metrics_plot.pdf', bbox_inches='tight', dpi=300, format='pdf')
+    plt.savefig(f'{plots_dir}/{dirname}_metrics.pdf', bbox_inches='tight', dpi=300, format='pdf')
 
-def plot_image_grid(dirname, dfs):
+def plot_image_grid(dirname, dfs, plots_dir):
     df, policy_df = dfs
     
     metrics = df['metric'].unique()
@@ -175,24 +175,26 @@ def plot_image_grid(dirname, dfs):
                 ax.set_ylabel('')
     plt.suptitle(f'Image Grid for {dirname}', fontsize=16)
     plt.tight_layout()
-    plt.savefig(f'{dirname}/plots/image_grid.pdf', bbox_inches='tight', dpi=300, format='pdf')
+    plt.savefig(f'{plots_dir}/{dirname}_image_grid.pdf', bbox_inches='tight', dpi=300, format='pdf')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dirs", type=str, nargs='+')
+    parser.add_argument("--plots_dir", type=str, default='plots')
     args = parser.parse_args()
-    
+
     experiment_dirs = []
     for base_dir in args.base_dirs:
         experiment_dirs.extend([ os.path.join(base_dir, d) for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) ])
+
+    os.makedirs(f'{args.plots_dir}', exist_ok=True)
 
     for dirname in experiment_dirs:
         print(f'Processing {dirname}...')
         try:
             dfs = read_dfs(dirname)
-            os.makedirs(f'{dirname}/plots', exist_ok=True)
-            create_metrics_plot(dirname, dfs)
-            plot_image_grid(dirname, dfs)
+            create_metrics_plot(dirname, dfs, args.plots_dir)
+            plot_image_grid(dirname, dfs, args.plots_dir)
             gc.collect()
         except Exception as e:
             print(f'Error processing {dirname}: {e}')
