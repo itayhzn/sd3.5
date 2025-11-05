@@ -138,7 +138,10 @@ def create_metrics_plot(dirname, dfs, plots_dir):
         ax.set_ylabel(metric)
     plt.suptitle(f'Metrics for {dirname}', fontsize=16)
     plt.tight_layout()
-    plt.savefig(f'{plots_dir}/{dirname}_metrics.pdf', bbox_inches='tight', dpi=300, format='pdf')
+
+    output_filename = f'{plots_dir}/{dirname}_metrics.pdf'
+    os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+    plt.savefig(output_filename, bbox_inches='tight', dpi=300, format='pdf')
 
 def plot_image_grid(dirname, dfs, plots_dir):
     df, policy_df = dfs
@@ -175,7 +178,10 @@ def plot_image_grid(dirname, dfs, plots_dir):
                 ax.set_ylabel('')
     plt.suptitle(f'Image Grid for {dirname}', fontsize=16)
     plt.tight_layout()
-    plt.savefig(f'{plots_dir}/{dirname}_image_grid.pdf', bbox_inches='tight', dpi=300, format='pdf')
+
+    output_filename = f'{plots_dir}/{dirname}_image_grid.pdf'
+    os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+    plt.savefig(output_filename, bbox_inches='tight', dpi=300, format='pdf')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
