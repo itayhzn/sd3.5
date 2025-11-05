@@ -571,10 +571,12 @@ class GRPOTrainer:
                         # Group-normalised advantages
                         normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
                         normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-6)  # (G,)
+                        normalized_advantages = normalized_advantages.clamp(min=-3.0, max=3.0)
 
                         normalized_rewards = torch.tensor(rewards, device=bank.device, dtype=torch.float32)
                         normalized_rewards = (normalized_rewards - normalized_rewards.mean()) / normalized_rewards.std(unbiased=False).clamp_min(1e-6)  # (G,)
                         normalized_rewards = normalized_rewards.clamp(min=-3.0, max=3.0)
+                        
                         torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
 
 
