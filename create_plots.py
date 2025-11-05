@@ -16,6 +16,7 @@ import re
 import math
 import gc
 import json
+import argparse
 
 def read_dfs(dirname):
     with open(f'{dirname}/logs/training_log_group.log', 'r') as f:
@@ -177,9 +178,13 @@ def plot_image_grid(dirname, dfs):
     plt.savefig(f'{dirname}/plots/image_grid.pdf', bbox_inches='tight', dpi=300, format='pdf')
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base_dirs", type=str, nargs='+')
+    args = parser.parse_args()
     
-    base_dir = 'outputs'
-    experiment_dirs = [ os.path.join(base_dir, d) for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) ]
+    experiment_dirs = []
+    for base_dir in args.base_dirs:
+        experiment_dirs.extend([ os.path.join(base_dir, d) for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) ])
 
     for dirname in experiment_dirs:
         print(f'Processing {dirname}...')
