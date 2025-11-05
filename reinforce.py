@@ -604,8 +604,8 @@ class GRPOTrainer:
                             "normalized_advantages": normalized_advantages.tolist(),
                             "normalized_rewards": normalized_rewards.tolist(),
                             "logps": logp_tensor.tolist(),
-                            "kld": kld.item(),
-                            "logp_entropy": logp_entropy.item(),
+                            "kld": kld,
+                            "logp_entropy": logp_entropy,
                             "loss": loss.item(),
                         }, f"{cfg.out_dir}/logs/training_log_group.log")
 
