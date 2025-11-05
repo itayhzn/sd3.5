@@ -589,7 +589,7 @@ class GRPOTrainer:
 
                         logp_entropy = -((-0.5 * (((logp_tensor) ** 2) + math.log(2 * math.pi))).mean())
 
-                        loss = -(normalized_rewards.detach() * (logp_tensor / max(1, action_dim))).mean() + 0.1 * kld - 0.01 * logp_entropy
+                        loss = -(normalized_advantages.detach() * (logp_tensor / max(1, action_dim))).mean() + 0.1 * kld - 0.01 * logp_entropy
 
                         logger({
                             "epoch": epoch,
