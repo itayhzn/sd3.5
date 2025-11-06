@@ -38,7 +38,8 @@ import torch
 
 import sd3_infer as sd3i
 import sd3_impls as sd3_impls
-
+import re
+from tqdm import tqdm
 
 def fft_low_high_split(x: torch.Tensor, cutoff_frac: float):
     """
@@ -49,7 +50,6 @@ def fft_low_high_split(x: torch.Tensor, cutoff_frac: float):
     """
     assert x.ndim == 4, f"expected [B,C,H,W], got {tuple(x.shape)}"
     B, C, H, W = x.shape
-    assert 0.0 < cutoff_frac <= 0.5, "cutoff_frac must be in (0, 0.5]"
 
     dev = x.device
     x32 = x.to(torch.float32)
@@ -62,6 +62,9 @@ def fft_low_high_split(x: torch.Tensor, cutoff_frac: float):
     rr = torch.sqrt(xx * xx + yy * yy)  # normalized radius
 
     mask = (rr <= cutoff_frac).to(torch.float32).view(1, 1, H, W)
+    low_bin_frac = float(mask.float().mean().item())
+    power = (X.abs()**2).mean(dim=(0,1))
+    low_energy_frac = float((power*mask).sum() / power.sum())
 
     X_low = X * mask
     X_high = X * (1.0 - mask)
@@ -71,12 +74,14 @@ def fft_low_high_split(x: torch.Tensor, cutoff_frac: float):
 
     low = torch.fft.ifft2(X_low, dim=(-2, -1)).real.to(x.dtype)
     high = torch.fft.ifft2(X_high, dim=(-2, -1)).real.to(x.dtype)
-    return low, high
+    
+
+    return low, high, low_bin_frac, low_energy_frac
 
 
 def compose_noise_with_shared_low(low_shared: torch.Tensor, noise_src: torch.Tensor, cutoff_frac: float):
     """Replace the low-frequencies of noise_src with low_shared; keep noise_src's high-frequencies."""
-    _, high = fft_low_high_split(noise_src, cutoff_frac)
+    _, high, _, _ = fft_low_high_split(noise_src, cutoff_frac)
     return (low_shared + high).to(noise_src.dtype)
 
 
@@ -130,7 +135,7 @@ def sample_with_custom_noise(
         noise_scaled,
         sigmas,
         save_tensors_path=save_tensors_path,
-        extra_args=extra_args
+        extra_args=extra_args,
     )
     latent = sd3i.SD3LatentFormat().process_out(latent)
     return latent
@@ -174,8 +179,13 @@ def run_experiment(
     text_encoder_device: str = "cpu",
     verbose: bool = False,
 ):
+    sanitized_prompt = re.sub(r"[^\w]", "_", prompt)[:60]
     out_dir.mkdir(parents=True, exist_ok=True)
-    params_encoding = f'sl{seed_low}_ha{seed_high_a}_hb{seed_high_b}_cf{cutoff_frac:.2f}'
+    os.makedirs(out_dir / 'reports', exist_ok=True)
+    os.makedirs(out_dir / 'imgs', exist_ok=True)
+    os.makedirs(out_dir / 'combined_imgs', exist_ok=True)
+
+    params_encoding = f'{sanitized_prompt}_sl{seed_low}_ha{seed_high_a}_hb{seed_high_b}_cf{cutoff_frac:.2f}'
 
     infer = sd3i.SD3Inferencer()
     with torch.no_grad():
@@ -196,7 +206,7 @@ def run_experiment(
 
     # Build the noises
     n_low_source = infer.get_noise(seed_low, latent)
-    low_shared, _ = fft_low_high_split(n_low_source, cutoff_frac)
+    low_shared, _, low_bin_frac, low_energy_frac = fft_low_high_split(n_low_source, cutoff_frac)
     nA = infer.get_noise(seed_high_a, latent)
     nB = infer.get_noise(seed_high_b, latent)
 
@@ -211,12 +221,12 @@ def run_experiment(
         A = (255.0 * (A - A.min()) / (A.ptp() + 1e-8)).astype(np.uint8)
         return A
 
-    Image.fromarray(amp_spectrum_channel0(n_low_source)).save(out_dir / f"{params_encoding}_amp_low_source.png")
-    Image.fromarray(amp_spectrum_channel0(nA)).save(out_dir / f"{params_encoding}_amp_highA_full.png")
-    Image.fromarray(amp_spectrum_channel0(nB)).save(out_dir / f"{params_encoding}_amp_highB_full.png")
-    Image.fromarray(amp_spectrum_channel0(noise_A)).save(out_dir / f"{params_encoding}_amp_composed_A.png")
-    Image.fromarray(amp_spectrum_channel0(noise_B)).save(out_dir / f"{params_encoding}_amp_composed_B.png")
-    Image.fromarray(amp_spectrum_channel0(low_shared)).save(out_dir / f"{params_encoding}_amp_low_shared.png")
+    # Image.fromarray(amp_spectrum_channel0(n_low_source)).save(out_dir / f"{params_encoding}_amp_low_source.png")
+    # Image.fromarray(amp_spectrum_channel0(nA)).save(out_dir / f"{params_encoding}_amp_highA_full.png")
+    # Image.fromarray(amp_spectrum_channel0(nB)).save(out_dir / f"{params_encoding}_amp_highB_full.png")
+    # Image.fromarray(amp_spectrum_channel0(noise_A)).save(out_dir / f"{params_encoding}_amp_composed_A.png")
+    # Image.fromarray(amp_spectrum_channel0(noise_B)).save(out_dir / f"{params_encoding}_amp_composed_B.png")
+    # Image.fromarray(amp_spectrum_channel0(low_shared)).save(out_dir / f"{params_encoding}_amp_low_shared.png")
     
     # Sample
     latA = sample_with_custom_noise(infer, latent, noise_A, cond, neg_cond, steps, cfg, sampler, None, 1.0)
@@ -225,37 +235,23 @@ def run_experiment(
     # Decode and save
     imgA = infer.vae_decode(latA)
     imgB = infer.vae_decode(latB)
-    imgA_path = out_dir / f"{params_encoding}_result_A.png"
-    imgB_path = out_dir / f"{params_encoding}_result_B.png"
+    imgA_path = out_dir / f"imgs/{params_encoding}_result_A.png"
+    imgB_path = out_dir / f"imgs/{params_encoding}_result_B.png"
     imgA.save(imgA_path)
     imgB.save(imgB_path)
 
     # Compare
     A = np.array(imgA.convert("RGB"))
     B = np.array(imgB.convert("RGB"))
+    diff_A_B = A-B
+    l2_val = np.linalg.norm(diff_A_B)
+    mae_val = np.mean(np.abs(diff_A_B))
     mse_val = mse(A, B)
+    rmse_val = np.sqrt(mse_val)
     psnr_val = psnr(mse_val)
 
     side = np.concatenate([A, B], axis=1)
-    save_image(side, out_dir / f"{params_encoding}_compare_side_by_side.png")
-
-    # plot a grid of 2x2: spectrum of A, spectrum of B, image A, image B
-    import matplotlib.pyplot as plt
-    fig, axs = plt.subplots(2, 2, figsize=(8, 8))
-    axs[0, 0].imshow(amp_spectrum_channel0(noise_A), cmap='gray', vmin=0, vmax=255)
-    axs[0, 0].set_title('Amplitude Spectrum A')
-    axs[0, 0].axis('off')
-    axs[0, 1].imshow(amp_spectrum_channel0(noise_B), cmap='gray', vmin=0, vmax=255)
-    axs[0, 1].set_title('Amplitude Spectrum B')
-    axs[0, 1].axis('off')
-    axs[1, 0].imshow(A)
-    axs[1, 0].set_title('Image A')
-    axs[1, 0].axis('off')
-    axs[1, 1].imshow(B)
-    axs[1, 1].set_title('Image B')
-    axs[1, 1].axis('off')
-    plt.tight_layout()
-    plt.savefig(out_dir / f"{params_encoding}_summary_plot.png", dpi=300)
+    save_image(side, out_dir / f"combined_imgs/{params_encoding}_compare_side_by_side.png")
     
     report = {
         "prompt": prompt,
@@ -268,22 +264,30 @@ def run_experiment(
         "seed_high_a": seed_high_a,
         "seed_high_b": seed_high_b,
         "cutoff_frac": cutoff_frac,
+        "low_bin_frac": low_bin_frac,
+        "low_energy_frac": low_energy_frac, 
         "mse": mse_val,
+        'rmse': rmse_val,
+        'l2': l2_val,
+        'mae': mae_val,
         "psnr": psnr_val,
-        "images": {
-            "low_source": str(out_dir / f"{params_encoding}_amp_low_source.png"),
-            "low_shared": str(out_dir / f"{params_encoding}_amp_low_shared.png"),
-            "highA": str(out_dir / f"{params_encoding}_amp_highA_full.png"),
-            "highB": str(out_dir / f"{params_encoding}_amp_highB_full.png"),
-            "composed_A": str(out_dir / f"{params_encoding}_amp_composed_A.png"),
-            "composed_B": str(out_dir / f"{params_encoding}_amp_composed_B.png"),
-            "A": str(imgA_path),
-            "B": str(imgB_path),
-            "side_by_side": str(out_dir / f"{params_encoding}_compare_side_by_side.png"),
-            "summary_plot": str(out_dir / f"{params_encoding}_summary_plot.png"),
-        },
+        "image_A": str(imgA_path),
+        "image_B": str(imgB_path),
+        "image_AB": str(out_dir / f"{params_encoding}_compare_side_by_side.png"),
+        # "images": {
+            # "low_source": str(out_dir / f"{params_encoding}_amp_low_source.png"),
+            # "low_shared": str(out_dir / f"{params_encoding}_amp_low_shared.png"),
+            # "highA": str(out_dir / f"{params_encoding}_amp_highA_full.png"),
+            # "highB": str(out_dir / f"{params_encoding}_amp_highB_full.png"),
+            # "composed_A": str(out_dir / f"{params_encoding}_amp_composed_A.png"),
+            # "composed_B": str(out_dir / f"{params_encoding}_amp_composed_B.png"),
+            # "A": str(imgA_path),
+            # "B": str(imgB_path),
+            # "side_by_side": str(out_dir / f"{params_encoding}_compare_side_by_side.png"),
+            # "summary_plot": str(out_dir / f"{params_encoding}_summary_plot.png"),
+        # },
     }
-    with open(out_dir / f"{params_encoding}_report.json", "w") as f:
+    with open(out_dir / f"reports/{params_encoding}.json", "w") as f:
         json.dump(report, f, indent=2)
 
     print(json.dumps(report, indent=2))
@@ -293,22 +297,24 @@ def run_experiment(
 
 def main():
     p = argparse.ArgumentParser("Low-frequency hypothesis test for SD3.5 initial noise")
-    p.add_argument("--prompt", type=str, default="a studio photo of a ginger cat, soft light")
+    p.add_argument("--prompts", type=str, nargs='+', default=["a studio photo of a ginger cat, soft light"])
+    p.add_argument("--p_from", type=float, default=0.0)
+    p.add_argument("--p_to", type=float, default=1.0)
     p.add_argument("--model", type=str, help="Path to sd3.5 model .safetensors", default="models/sd3.5_medium.safetensors")
     p.add_argument("--clip_g", type=str, help="Path to clip_g.safetensors (if not in folder)", default="models/clip_g.safetensors")
     p.add_argument("--clip_l", type=str, help="Path to clip_l.safetensors (if not in folder)", default="models/clip_l.safetensors")
     p.add_argument("--t5", type=str, help="Path to t5xxl.safetensors (if not in folder)", default="models/t5xxl.safetensors")
     p.add_argument("--vae", type=str, help="Path to sd3_vae.safetensors", default="models/sd3.5_medium.safetensors")
-    p.add_argument("--width", type=int, default=1024)
-    p.add_argument("--height", type=int, default=1024)
+    p.add_argument("--width", type=int, default=512)
+    p.add_argument("--height", type=int, default=512)
     p.add_argument("--steps", type=int, default=30)
     p.add_argument("--cfg", type=float, default=4.5)
     p.add_argument("--sampler", type=str, default="dpmpp_2m", choices=["dpmpp_2m", "euler"])
     p.add_argument("--seed_low", type=int, default=1234, help="Seed for the SHARED low-frequency component")
     p.add_argument("--seed_high_a", type=int, default=111, help="Seed for A's high-frequencies")
     p.add_argument("--seed_high_b", type=int, default=222, help="Seed for B's high-frequencies")
-    p.add_argument("--cutoff_frac", type=float, default=0.10, help="Fraction of Nyquist radius to keep as 'low' (e.g., 0.10)")
-    p.add_argument("--out_dir", type=str, default="outputs/lowfreq_test")
+    p.add_argument("--cutoff_fracs", type=float, nargs='+', default=[float(x / 100.) for x in range(1,10)] + [float(x/10.0) for x in range(1,10)], help="Fraction of Nyquist radius to keep as 'low' (e.g., 0.10)")
+    p.add_argument("--out_dir", type=str, default="outputs/lowfreq_stats")
     p.add_argument("--text_encoder_device", type=str, default="cpu")
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args()
@@ -320,26 +326,40 @@ def main():
     if args.clip_l: os.environ["CLIP_L_FILE"] = args.clip_l
     if args.t5:     os.environ["T5XXL_FILE"] = args.t5
 
-    run_experiment(
-        prompt=args.prompt,
-        model=args.model,
-        clip_g=args.clip_g,
-        clip_l=args.clip_l,
-        t5=args.t5,
-        vae=args.vae,
-        width=args.width,
-        height=args.height,
-        steps=args.steps,
-        cfg=args.cfg,
-        sampler=args.sampler,
-        seed_low=args.seed_low,
-        seed_high_a=args.seed_high_a,
-        seed_high_b=args.seed_high_b,
-        cutoff_frac=args.cutoff_frac,
-        out_dir=Path(args.out_dir),
-        text_encoder_device=args.text_encoder_device,
-        verbose=args.verbose,
-    )
+    with open('videojam_prompts.txt', "r") as f:
+        lines = f.readlines()
+    lines = [line.strip() for line in lines if line.strip()]
+
+    prompts = args.prompts + lines
+    len_p = len(prompts)
+    prompts = prompts[int(len_p * args.p_from):int(len_p * args.p_to)]
+
+    configurations = []
+    for p in prompts:
+        for c in args.cutoff_fracs:
+            configurations.append((p,c))
+
+    for prompt, cutoff_frac in tqdm(configurations):
+            run_experiment(
+                prompt=prompt,
+                model=args.model,
+                clip_g=args.clip_g,
+                clip_l=args.clip_l,
+                t5=args.t5,
+                vae=args.vae,
+                width=args.width,
+                height=args.height,
+                steps=args.steps,
+                cfg=args.cfg,
+                sampler=args.sampler,
+                seed_low=args.seed_low,
+                seed_high_a=args.seed_high_a,
+                seed_high_b=args.seed_high_b,
+                cutoff_frac=cutoff_frac,
+                out_dir=Path(args.out_dir),
+                text_encoder_device=args.text_encoder_device,
+                verbose=args.verbose,
+            )
 
 
 if __name__ == "__main__":
