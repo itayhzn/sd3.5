@@ -130,8 +130,7 @@ def sample_with_custom_noise(
         noise_scaled,
         sigmas,
         save_tensors_path=save_tensors_path,
-        extra_args=extra_args,
-        callback=lambda x: x,
+        extra_args=extra_args
     )
     latent = sd3i.SD3LatentFormat().process_out(latent)
     return latent
