@@ -172,3 +172,4 @@ cython_debug/
 dataset_images/
 visualizations/
 jobs-out-err/
+datasets/
