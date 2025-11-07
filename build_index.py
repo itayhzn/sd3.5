@@ -59,7 +59,6 @@ def _batch_embed_images(model, proc, paths, device="cuda", batch_size=64):
         inputs = proc(images=batch, return_tensors="pt", padding=True).to(device)
         feats = model.get_image_features(**inputs)
         feats = feats / feats.norm(dim=-1, keepdim=True)
-        print(f"Image batch {i}-{i+len(batch)}: feats.shape={feats.shape}, feats.norms={feats.norm(dim=-1).cpu().numpy().tolist()}")
         embs.append(feats.cpu())
     return torch.cat(embs, dim=0).numpy()  # (N, D)
 

@@ -83,11 +83,18 @@ RUN conda env remove -n rewardenv -y || true && \
     conda clean -afy
 
 #-------------------------------------------------
+# 6) Create FAISS index directory
+#-------------------------------------------------
+WORKDIR /storage/itaytuviah/sd3.5
+
+COPY download_dataset.py /tmp/download_dataset.py
+RUN conda run -n myenv python /tmp/download_dataset.py && \
+    conda run -n myenv python -c "from build_index import build_faiss_indexes; build_faiss_indexes(dataset_dirs=['datasets/ksaml/Stanford_dogs'], out_dir='dog_index')"
+
+#-------------------------------------------------
 # 6) Entry point
 #-------------------------------------------------
 # Instead of "source activate", which can be tricky in non-interactive shells,
 # use 'conda run' to ensure the environment is active when your script runs.
 # run python main.py
-WORKDIR /storage/itaytuviah/sd3.5
-
 ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "myenv", "python", "main.py"]
