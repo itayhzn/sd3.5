@@ -56,5 +56,5 @@ dependencies:
       - ruff == 0.6.8
       - pillow
       - webdataset
+      - datasets
       - faiss-cpu
-      
