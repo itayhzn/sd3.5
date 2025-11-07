@@ -27,6 +27,7 @@ class RealIndex:
         inputs = self.proc(images=img, return_tensors="pt").to(self.device)
         z = self.clip.get_image_features(**inputs)
         z = z / z.norm(dim=-1, keepdim=True)
+        print(f"Embedded image: z.shape={z.shape}, z.norm={z.norm().item()}")
         return z.cpu().numpy().astype("float32")  # (1, D)
 
     @torch.no_grad()
@@ -39,7 +40,8 @@ class RealIndex:
     def nearest_images(self, img: Image.Image, k=5):
         z = self.embed_image(img)
         D, I = self.img_index.search(z, k)
-        return D[0], I[0]  # distances (cosine sims), indices
+        print(f"Nearest images distances: {D[0].tolist()}")
+        return float(D[0, 0]), I[0, 0]  # distances (cosine sims), indices
 
     def prompt_conditioned(self, prompt: str, k=50, topn=5, w_img=0.5, w_txt=0.5):
         """

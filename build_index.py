@@ -59,6 +59,7 @@ def _batch_embed_images(model, proc, paths, device="cuda", batch_size=64):
         inputs = proc(images=batch, return_tensors="pt", padding=True).to(device)
         feats = model.get_image_features(**inputs)
         feats = feats / feats.norm(dim=-1, keepdim=True)
+        print(f"Image batch {i}-{i+len(batch)}: feats.shape={feats.shape}, feats.norms={feats.norm(dim=-1).cpu().numpy().tolist()}")
         embs.append(feats.cpu())
     return torch.cat(embs, dim=0).numpy()  # (N, D)
 
@@ -138,6 +139,7 @@ def build_faiss_indexes(
     img_index = faiss.IndexFlatIP(D)
     img_index.add(img_emb.astype(np.float32))
     faiss.write_index(img_index, os.path.join(out_dir, "img.index"))
+    faiss.print('faiss metric:', img_index.metric_type)
     np.save(os.path.join(out_dir, "paths.npy"), np.array(img_paths))
 
     if build_text_index:
