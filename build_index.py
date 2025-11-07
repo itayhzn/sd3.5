@@ -5,7 +5,10 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
+import re
 import torch
+from torch.utils.data import DataLoader
+
 from transformers import CLIPProcessor, CLIPModel
 import faiss
 
@@ -61,17 +64,41 @@ def _batch_embed_images(model, proc, paths, device="cuda", batch_size=64):
 
 
 @torch.no_grad()
-def _batch_embed_texts(model, proc, texts, device="cuda", batch_size=256):
+def _batch_embed_texts(model, processor, texts, device="cuda", batch_size=256):
+    # Clean & filter captions
+    cleaned = []
+    for t in texts:
+        t = "" if t is None else str(t)
+        t = re.sub(r"\s+", " ", t).strip()
+        if t:  # keep non-empty
+            cleaned.append(t)
+    if not cleaned:
+        # Return empty (0, D) NumPy to keep downstream happy
+        D = model.text_projection.out_features
+        return np.empty((0, D), dtype=np.float32)
+
     embs = []
-    # Replace None captions with empty string for shape safety
-    texts = [t if (t is not None) else "" for t in texts]
-    for i in tqdm(range(0, len(texts), batch_size), desc="Embed captions"):
-        batch = texts[i:i+batch_size]
-        inputs = proc(text=batch, return_tensors="pt", padding=True).to(device)
-        feats = model.get_text_features(**inputs)
-        feats = feats / feats.norm(dim=-1, keepdim=True)
+    for i in range(0, len(cleaned), batch_size):
+        chunk = cleaned[i:i+batch_size]
+
+        # IMPORTANT: pad + truncate so we can return tensors;
+        # limit to CLIP's max (typically 77)
+        inputs = processor(
+            text=chunk,
+            padding=True,                      # <-- changed
+            truncation=True,                   # <-- keep
+            max_length=processor.tokenizer.model_max_length,
+            return_tensors="pt",
+        )
+        # move to device
+        for k in inputs:
+            inputs[k] = inputs[k].to(device)
+
+        feats = model.get_text_features(**inputs)         # (B, D)
+        feats = torch.nn.functional.normalize(feats, dim=-1)
         embs.append(feats.cpu())
-    return torch.cat(embs, dim=0).numpy()  # (N, D)
+
+    return torch.cat(embs, dim=0).numpy()                 # <-- return NumPy
 
 
 def build_faiss_indexes(
@@ -101,21 +128,22 @@ def build_faiss_indexes(
 
     if build_text_index:
         cap_emb = _batch_embed_texts(model, proc, captions, device=device)
-        if cap_emb.shape[1] != D:
+        if cap_emb.size == 0:
+            print("[WARN] No non-empty captions found; skipping text index.")
+            build_text_index = False
+        elif cap_emb.shape[1] != D:
             raise ValueError("Text and image embedding dims differ.")
 
     # 4) Build FAISS (cosine via inner product on unit vectors)
     img_index = faiss.IndexFlatIP(D)
     img_index.add(img_emb.astype(np.float32))
     faiss.write_index(img_index, os.path.join(out_dir, "img.index"))
-
     np.save(os.path.join(out_dir, "paths.npy"), np.array(img_paths))
 
     if build_text_index:
         text_index = faiss.IndexFlatIP(D)
         text_index.add(cap_emb.astype(np.float32))
         faiss.write_index(text_index, os.path.join(out_dir, "text.index"))
-        # Save captions (aligned)
         np.save(os.path.join(out_dir, "captions.npy"), np.array(captions, dtype=object))
 
     print(f"Saved index to {out_dir}.")

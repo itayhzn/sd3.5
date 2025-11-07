@@ -20,10 +20,6 @@ class NearestNeighborReward:
         reward = float(torch.exp(self.alpha * torch.tensor(sim)).clamp(max=1e6))  # map up; keep sane cap
         return reward
     
-# reward_prompt_aware.py
-import numpy as np
-import torch
-
 class PromptAwareNearestNeighborReward:
     """
     Reward = sigmoid( a * sim_text_image ) * exp( b * sim_to_nearest_real )

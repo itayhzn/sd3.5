@@ -173,3 +173,4 @@ dataset_images/
 visualizations/
 jobs-out-err/
 datasets/
+faiss_index/

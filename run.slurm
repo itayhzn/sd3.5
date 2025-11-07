@@ -33,5 +33,7 @@ export TMPDIR=${USER_DIR}/tmp
 export CONDA_PKGS_DIRS=${USER_DIR}/.cache/conda/pkgs
 export CONDA_ENVS_PATH=${USER_DIR}/conda-envs
 
+# conda run -n myenv pip install faiss-cpu
 
-conda run -n myenv python reinforce_main.py --num_epochs 20 --seeds 23 --state_alpha 0.001 --action_alpha 0.01 --experiment_name g8_sa001_aa001 --group_size 8 --out_dir "outputs/grpo-new"
+conda run -n myenv python test_script.py
+# conda run -n myenv python reinforce_main.py --num_epochs 20 --seeds 23 --state_alpha 0.001 --action_alpha 0.01 --experiment_name g8_sa001_aa001 --group_size 8 --out_dir "outputs/grpo-new"

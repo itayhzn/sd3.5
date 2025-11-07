@@ -10,6 +10,8 @@ from reinforce import PolicyBank, GRPOTrainer, Config
 from mock_scorer import MockScorer
 from sd3_infer import SD3Inferencer
 
+from nearest_neighbor_reward import NearestNeighborReward
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -91,9 +93,12 @@ def main(args):
         out_dir=out_dir,
     )
 
-    mock = MockScorer(mode=args.reward_scorer)
-    def reward_fn(prompt: str, img: Image.Image) -> float:
-        return mock(img)
+    if args.reward_scorer == 'nearest_neighbors':
+        reward_fn = NearestNeighborReward(index_dir=args.faiss_index)
+    else:
+        mock = MockScorer(mode=args.reward_scorer)
+        def reward_fn(prompt: str, img: Image.Image) -> float:
+            return mock(img)
 
 
     os.makedirs(out_dir, exist_ok=True)
@@ -114,15 +119,16 @@ if __name__ == "__main__":
     parser.add_argument("--prompts", type=str, nargs='*', default=[])
     parser.add_argument("--prompts_file", type=str, default=None)
     parser.add_argument("--seeds", type=int, nargs='*', default=[])
-    parser.add_argument("--width", type=int, default=1024)
-    parser.add_argument("--height", type=int, default=1024)
+    parser.add_argument("--width", type=int, default=512)
+    parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--action_alpha", type=float, default=1.0)
     parser.add_argument("--state_alpha", type=float, default=0.1)
     parser.add_argument("--action_mode", type=str, default="basis_delta", choices=["basis_delta", "latent_delta"])  
     parser.add_argument("--hidden_size", type=int, default=256)
     parser.add_argument("--action_dim_basis", type=int, default=64)
     parser.add_argument("--experiment_name", type=str, default="default")
-    parser.add_argument("--reward_scorer", type=str, default="brightness", choices=["sharp_contrast", "brightness", "entropy"])
+    parser.add_argument("--reward_scorer", type=str, default="nearest_neighbor", choices=["nearest_neighbor", "sharp_contrast", "brightness", "entropy"])
+    parser.add_argument("--faiss_index", type=str, default="faiss_index")
     parser.add_argument("--steps", type=int, default=28)
     parser.add_argument("--cfg_scale", type=float, default=4.5)
     parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
