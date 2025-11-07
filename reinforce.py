@@ -617,7 +617,7 @@ class GRPOTrainer:
 
             if epoch % cfg.save_every == 0:
                 ckpt = {"policy_bank": bank.state_dict(), "schedule": cfg.schedule, "epoch": epoch}
-                save_tensor(ckpt, os.path.join(cfg.out_dir, f"checkpoints/policy_bank_epoch_{epoch:02d}.pt"))
+                # save_tensor(ckpt, os.path.join(cfg.out_dir, f"checkpoints/policy_bank_epoch_{epoch:02d}.pt"))
                 print(f"[GRPO] Saved checkpoint for epoch {epoch}")
 
         print("GRPO training complete.")
