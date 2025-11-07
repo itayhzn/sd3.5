@@ -93,7 +93,7 @@ def main(args):
         out_dir=out_dir,
     )
 
-    if args.reward_scorer == 'nearest_neighbors':
+    if args.reward_scorer == 'nearest_neighbor':
         reward_fn = NearestNeighborReward(index_dir=args.faiss_index)
     else:
         mock = MockScorer(mode=args.reward_scorer)

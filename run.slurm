@@ -33,7 +33,19 @@ export TMPDIR=${USER_DIR}/tmp
 export CONDA_PKGS_DIRS=${USER_DIR}/.cache/conda/pkgs
 export CONDA_ENVS_PATH=${USER_DIR}/conda-envs
 
-# conda run -n myenv pip install faiss-cpu
 
-conda run -n myenv python test_script.py
-# conda run -n myenv python reinforce_main.py --num_epochs 20 --seeds 23 --state_alpha 0.001 --action_alpha 0.01 --experiment_name g8_sa001_aa001 --group_size 8 --out_dir "outputs/grpo-new"
+
+# conda run -n myenv python reinforce_main.py  --num_epochs 50   --seeds 23   --state_alpha 0.05 --action_alpha 1.0 --experiment_name G8_SA005_AA10_E50_Pcat_S23 --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 50    --state_alpha 0.05 --action_alpha 1.0 --experiment_name G8_SA005_AA10_E50_Pcat_Srand --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 1   --seeds 23  --prompts_file "pqpp_prompts_100.txt"  --state_alpha 0.05 --action_alpha 1.0 --experiment_name G8_SA005_AA10_E1_Ppqpp_S23 --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 1   --prompts_file "pqpp_prompts_100.txt"  --state_alpha 0.05 --action_alpha 1.0 --experiment_name G8_SA005_AA10_E1_Ppqpp_Srand --group_size 8 --out_dir "outputs/grpo-nn"
+
+# conda run -n myenv python reinforce_main.py  --num_epochs 50   --seeds 23   --state_alpha 0.05 --action_alpha 1.5 --experiment_name G8_SA005_AA15_E50_Pcat_S23 --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 50    --state_alpha 0.05 --action_alpha 1.5 --experiment_name G8_SA005_AA15_E50_Pcat_Srand --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 1   --seeds 23  --prompts_file "pqpp_prompts_100.txt"  --state_alpha 0.05 --action_alpha 1.5 --experiment_name G8_SA005_AA15_E1_Ppqpp_S23 --group_size 8 --out_dir "outputs/grpo-nn"
+conda run -n myenv python reinforce_main.py  --num_epochs 1   --prompts_file "pqpp_prompts_100.txt"  --state_alpha 0.05 --action_alpha 1.5 --experiment_name G8_SA005_AA15_E1_Ppqpp_Srand --group_size 8 --out_dir "outputs/grpo-nn"
+
+# conda run -n myenv python reinforce_main.py  --num_epochs 50   --seeds 23   --state_alpha 0.05 --action_alpha 2.0 --experiment_name G8_SA005_AA20_E50_Pcat_S23 --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 50    --state_alpha 0.05 --action_alpha 2.0 --experiment_name G8_SA005_AA20_E50_Pcat_Srand --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 1   --seeds 23  --prompts_file "pqpp_prompts_100.txt"  --state_alpha 0.05 --action_alpha 2.0 --experiment_name G8_SA005_AA20_E1_Ppqpp_S23 --group_size 8 --out_dir "outputs/grpo-nn"
+# conda run -n myenv python reinforce_main.py  --num_epochs 1   --prompts_file "pqpp_prompts_100.txt"  --state_alpha 0.05 --action_alpha 2.0 --experiment_name G8_SA005_AA20_E1_Ppqpp_Srand --group_size 8 --out_dir "outputs/grpo-nn"
