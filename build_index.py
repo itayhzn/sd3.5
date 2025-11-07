@@ -138,7 +138,6 @@ def build_faiss_indexes(
     img_index = faiss.IndexFlatIP(D)
     img_index.add(img_emb.astype(np.float32))
     faiss.write_index(img_index, os.path.join(out_dir, "img.index"))
-    faiss.print('faiss metric:', img_index.metric_type)
     np.save(os.path.join(out_dir, "paths.npy"), np.array(img_paths))
 
     if build_text_index:
