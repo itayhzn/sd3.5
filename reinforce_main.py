@@ -112,7 +112,7 @@ if __name__ == "__main__":
     parser.add_argument("--schedule", type=int, nargs='*', default=[0])
     parser.add_argument("--group_size", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=20)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=3e-5)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--save_every", type=int, default=1)
     parser.add_argument("--out_dir", type=str, default="outputs/grpo")
