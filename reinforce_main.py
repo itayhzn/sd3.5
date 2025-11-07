@@ -10,7 +10,7 @@ from reinforce import PolicyBank, GRPOTrainer, Config
 from mock_scorer import MockScorer
 from sd3_infer import SD3Inferencer
 
-from nearest_neighbor_reward import NearestNeighborReward
+from knn_reward import KNNReward
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -93,8 +93,9 @@ def main(args):
         out_dir=out_dir,
     )
 
-    if args.reward_scorer == 'nearest_neighbor':
-        reward_fn = NearestNeighborReward(index_dir=args.faiss_index)
+    if args.reward_scorer.startswith('knn'):
+        k = int(args.reward_scorer.split('_')[-1])
+        reward_fn = KNNReward(index_dir=args.faiss_index, k=k)
     else:
         mock = MockScorer(mode=args.reward_scorer)
         def reward_fn(prompt: str, img: Image.Image) -> float:
@@ -127,10 +128,10 @@ if __name__ == "__main__":
     parser.add_argument("--hidden_size", type=int, default=256)
     parser.add_argument("--action_dim_basis", type=int, default=64)
     parser.add_argument("--experiment_name", type=str, default="default")
-    parser.add_argument("--reward_scorer", type=str, default="nearest_neighbor", choices=["nearest_neighbor", "sharp_contrast", "brightness", "entropy"])
-    parser.add_argument("--faiss_index", type=str, default="faiss_index")
+    parser.add_argument("--reward_scorer", type=str, default="knn_1", choices=["knn_1", "knn_2", "knn_3", "sharp_contrast", "brightness", "entropy"])
+    parser.add_argument("--faiss_index", type=str, default="faiss_indexes/dog_index")
     parser.add_argument("--steps", type=int, default=28)
-    parser.add_argument("--cfg_scale", type=float, default=4.5)
+    parser.add_argument("--cfg_scale", type=float, default=3.5)
     parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
     parser.add_argument("--latent_encoding_dim", type=int, default=128)
     parser.add_argument("--cond_encoding_dim", type=int, default=32)

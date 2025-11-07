@@ -90,6 +90,8 @@ WORKDIR /storage/itaytuviah/sd3.5
 COPY download_dataset.py /tmp/download_dataset.py
 RUN conda run -n myenv python /tmp/download_dataset.py && \
     conda run -n myenv python -c "from build_index import build_faiss_indexes; build_faiss_indexes(dataset_dirs=['datasets/ksaml/Stanford_dogs'], out_dir='dog_index')"
+    
+RUN rm -rf 'datasets/ksaml/Stanford_dogs'
 
 #-------------------------------------------------
 # 6) Entry point
