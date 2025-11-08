@@ -14,6 +14,6 @@ class KNNReward:
         cossim = float(D[0].mean())                 # cosine sim ∈ [-1,1]
         theta = np.arccos(np.clip(cossim, -1.0, 1.0))  # angle in [0, π]
         sim = 1.0 - (theta / np.pi)              # normalize to [0, 1]
-        sim = np.exp(3 * sim) - 1.0              # sharpen
-        sim = np.clip(sim, 0.0, 1.0)              # ensure sim is in [0, 1]
+        sim = np.exp(3 * sim)              # sharpen, range [1, e^3]
+        
         return sim
