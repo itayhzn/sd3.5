@@ -182,15 +182,21 @@ def build_faiss_from_tsv(
     min_side: int = 0,               # optionally skip too-small images
     build_text_index: bool = False,  # TSV has no captions; keep off by default
     timeout: float = 10.0,
+    print_every: int = 100,          # how often to print progress summaries
 ):
     """
     Streams a TSV of URLs:
-      - download up to `batch_size` images into memory,
-      - embed, add to FAISS,
-      - discard images and continue.
-    Saves: img.index, paths.npy (URL list). Optionally text.index (no captions here).
+      - downloads up to `batch_size` images into memory,
+      - embeds, adds to FAISS,
+      - discards them and continues.
+    Shows real-time progress with flushes.
     """
     os.makedirs(out_dir, exist_ok=True)
+
+    print(f"[INFO] Starting FAISS index build from TSV: {tsv_path}", flush=True)
+    print(f"[INFO] Output directory: {out_dir}", flush=True)
+    print(f"[INFO] Device: {device} | Batch size: {batch_size}", flush=True)
+    print(f"[INFO] CLIP model: {clip_model_name}", flush=True)
 
     # Load CLIP
     model = CLIPModel.from_pretrained(clip_model_name).to(device).eval()
@@ -199,29 +205,48 @@ def build_faiss_from_tsv(
     img_index = None
     paths_accum = []
     pil_batch, url_batch = [], []
-    n_seen = 0
 
-    for url, _ in tqdm(_iter_tsv_urls(tsv_path), desc="Stream TSV"):
+    n_seen = 0
+    n_success = 0
+    n_failed = 0
+    n_skipped_small = 0
+
+    for url, _ in _iter_tsv_urls(tsv_path):
         if max_items and n_seen >= max_items:
             break
+
+        n_seen += 1
         img = _download_image(url, timeout=timeout)
         if img is None:
+            n_failed += 1
+            if n_seen % print_every == 0:
+                print(f"[{n_seen}] Failed to download {url}", flush=True)
             continue
+
         if min_side > 0:
             w, h = img.size
             if min(w, h) < min_side:
+                n_skipped_small += 1
                 continue
 
         pil_batch.append(img)
         url_batch.append(url)
-        n_seen += 1
 
+        # Process when batch is full
         if len(pil_batch) >= batch_size:
             feats = _embed_pil_batch(model, proc, pil_batch, device=device)
             if img_index is None:
                 img_index = _ensure_ip_index(feats.shape[1])
             _append_to_index(img_index, feats)
             paths_accum.extend(url_batch)
+            n_success += len(pil_batch)
+
+            print(
+                f"[PROGRESS] {n_success} images indexed "
+                f"({n_seen} seen, {n_failed} failed, {n_skipped_small} too small)",
+                flush=True,
+            )
+
             # discard batch to free memory
             pil_batch.clear()
             url_batch.clear()
@@ -233,18 +258,24 @@ def build_faiss_from_tsv(
             img_index = _ensure_ip_index(feats.shape[1])
         _append_to_index(img_index, feats)
         paths_accum.extend(url_batch)
+        n_success += len(pil_batch)
+        print(f"[FLUSH] Added last {len(pil_batch)} images (total {n_success}).", flush=True)
 
     if img_index is None:
         raise ValueError("No valid images were embedded from TSV.")
 
+    # Save results
     faiss.write_index(img_index, os.path.join(out_dir, "img.index"))
     np.save(os.path.join(out_dir, "paths.npy"), np.array(paths_accum, dtype=object))
 
-    if build_text_index:
-        # no captions in this TSV; kept for symmetry (disabled by default)
-        pass
-
-    print(f"[OK] Saved index to {out_dir}. Images indexed: {len(paths_accum)}")
+    print("\n=== SUMMARY ===", flush=True)
+    print(f"TSV path:         {tsv_path}", flush=True)
+    print(f"Images seen:      {n_seen}", flush=True)
+    print(f"Images indexed:   {n_success}", flush=True)
+    print(f"Images failed:    {n_failed}", flush=True)
+    print(f"Too small:        {n_skipped_small}", flush=True)
+    print(f"Output directory: {out_dir}", flush=True)
+    print(f"✅ Saved FAISS index successfully.", flush=True)
 
 # ----------------------------- CLI -----------------------------------------------
 
