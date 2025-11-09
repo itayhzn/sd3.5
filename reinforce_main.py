@@ -142,7 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_folder", type=str, default="/scratch200/itaytuviah/models/sd3.5")
     parser.add_argument("--model", type=str, default="sd3.5_medium.safetensors")
     parser.add_argument("--sampler", type=str, default="dpmpp_2m")
-    parser.add_argument("--clip_dir", type=str, default='/scratch200/itaytuviah/models/models--openai--clip-vit-large-patch14')
+    parser.add_argument("--clip_dir", type=str, default='/scratch200/itaytuviah/models/models--openai--clip-vit-large-patch14/snapshots/32bd64288804d66eefd0ccbe215aa642df71cc41/')
     args = parser.parse_args()
 
     main(args)
