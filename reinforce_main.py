@@ -59,17 +59,20 @@ def main(args):
         mode=args.action_mode,
         cfg_scale=args.cfg_scale,
         steps=args.steps,
+        model_folder=args.model_folder,
+        model=args.model,
+        sampler=args.sampler,
     )
 
     # Frozen SD3.5
     inf = SD3Inferencer()
     with torch.no_grad():
         inf.load(
-            model="models/sd3.5_medium.safetensors",
+            model=args.model,
             vae=None,
             shift=3.0,
             controlnet_ckpt=None,
-            model_folder="models",
+            model_folder=args.model_folder,
             text_encoder_device="cpu",
             verbose=False,
         )
@@ -89,7 +92,7 @@ def main(args):
         inferencer=inf,
         steps=args.steps,
         cfg_scale=args.cfg_scale,
-        sampler="dpmpp_2m",
+        sampler=args.sampler,
         out_dir=out_dir,
     )
 
@@ -135,6 +138,9 @@ if __name__ == "__main__":
     parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
     parser.add_argument("--latent_encoding_dim", type=int, default=128)
     parser.add_argument("--cond_encoding_dim", type=int, default=32)
+    parser.add_argument("--model_folder", type=str, default="./models/")
+    parser.add_argument("--model", type=str, default="sd3.5_medium.safetensors")
+    parser.add_argument("--sampler", type=str, default="dpmpp_2m")
     args = parser.parse_args()
     
     main(args)
