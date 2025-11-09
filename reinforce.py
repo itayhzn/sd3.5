@@ -584,7 +584,7 @@ class GRPOTrainer:
 
 
                     logp_tensor = torch.stack(logps, dim=0)  # (G,)
-                    last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
+                    last_linear = [m for m in bank.policy(int(cfg.schedule[0])).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
                     action_dim = last_linear.out_features // 2
 
                     kld = torch.tensor(0.0, device=bank.device)
