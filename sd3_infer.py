@@ -225,7 +225,7 @@ SEEDTYPE = "fixed"
 # SEEDTYPE = "rand"
 # SEEDTYPE = "roll"
 # Actual model file path
-MODEL = "models/sd3.5_medium.safetensors"
+MODEL = None  # "models/sd3.5_medium.safetensors"
 # MODEL = "models/sd3.5_large_turbo.safetensors"
 # MODEL = "models/sd3.5_large.safetensors"
 # VAE model file path, or set None to use the same model file
@@ -278,7 +278,7 @@ class SD3Inferencer:
             print("Loading OpenCLIP bigG...")
             self.clip_g = ClipG(model_folder, text_encoder_device)
         print(f"Loading SD3 model {os.path.basename(model)}...")
-        self.sd3 = SD3(model, shift, controlnet_ckpt, verbose, "cuda")
+        self.sd3 = SD3(os.path.join(model_folder, model), shift, controlnet_ckpt, verbose, "cuda")
         print("Loading VAE model...")
         self.vae = VAE(vae or model)
         print("Models loaded.")
