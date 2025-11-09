@@ -421,7 +421,11 @@ class Config:
     mode: str = "basis_delta"
     cfg_scale: float = 4.5
     steps: int = 28
-    
+    model_folder: str = "/scratch200/itaytuviah/models/sd3.5",
+    model: str = "sd3.5_medium.safetensors",
+    sampler: str = "dpmpp_2m",
+    clip_dir: str = '/scratch200/itaytuviah/models/models--openai--clip-vit-large-patch14',
+
 class GRPOTrainer:
     """
     For each (prompt, seed, t): sample G actions (group), compute rewards, normalise advantages,
