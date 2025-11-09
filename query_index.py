@@ -6,10 +6,10 @@ from transformers import CLIPProcessor, CLIPModel
 import faiss
 
 class RealIndex:
-    def __init__(self, index_dir: str, clip_model_name="openai/clip-vit-large-patch14", device="cuda"):
+    def __init__(self, index_dir: str, clip_model_name="openai/clip-vit-large-patch14", clip_dir=None, device="cuda"):
         self.device = device
-        self.clip = CLIPModel.from_pretrained(clip_model_name).to(device).eval()
-        self.proc = CLIPProcessor.from_pretrained(clip_model_name)
+        self.clip = CLIPModel.from_pretrained(clip_dir or clip_model_name).to(device).eval()
+        self.proc = CLIPProcessor.from_pretrained(clip_dir or clip_model_name)
 
         self.img_index = faiss.read_index(f"{index_dir}/img.index")
         self.paths = np.load(f"{index_dir}/paths.npy", allow_pickle=True)

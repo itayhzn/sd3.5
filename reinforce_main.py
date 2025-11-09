@@ -62,6 +62,7 @@ def main(args):
         model_folder=args.model_folder,
         model=args.model,
         sampler=args.sampler,
+        clip_dir=args.clip_dir,
     )
 
     # Frozen SD3.5
@@ -98,7 +99,7 @@ def main(args):
 
     if args.reward_scorer.startswith('knn'):
         k = int(args.reward_scorer.split('_')[-1])
-        reward_fn = KNNReward(index_dir=args.faiss_index, k=k)
+        reward_fn = KNNReward(index_dir=args.faiss_index, k=k, clip_dir=args.clip_dir)
     else:
         mock = MockScorer(mode=args.reward_scorer)
         def reward_fn(prompt: str, img: Image.Image) -> float:
@@ -138,9 +139,10 @@ if __name__ == "__main__":
     parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
     parser.add_argument("--latent_encoding_dim", type=int, default=128)
     parser.add_argument("--cond_encoding_dim", type=int, default=32)
-    parser.add_argument("--model_folder", type=str, default="./models/")
+    parser.add_argument("--model_folder", type=str, default="/scratch200/itaytuviah/models/sd3.5")
     parser.add_argument("--model", type=str, default="sd3.5_medium.safetensors")
     parser.add_argument("--sampler", type=str, default="dpmpp_2m")
+    parser.add_argument("--clip_dir", type=str, default='/scratch200/itaytuviah/models/models--openai--clip-vit-large-patch14')
     args = parser.parse_args()
     
     main(args)

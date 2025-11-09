@@ -3,9 +3,9 @@ import numpy as np
 import torch
 
 class KNNReward:
-    def __init__(self, index_dir: str, k: int = 1, device: str = "cuda"):
+    def __init__(self, index_dir: str, k: int = 1, clip_dir: str = None, device: str = "cuda"):
         from query_index import RealIndex
-        self.idx = RealIndex(index_dir, device=device)
+        self.idx = RealIndex(index_dir, clip_dir=clip_dir, device=device)
         self.k = k
 
     def __call__(self, prompt: str, img) -> float:
@@ -15,5 +15,5 @@ class KNNReward:
         theta = np.arccos(np.clip(cossim, -1.0, 1.0))  # angle in [0, π]
         sim = 1.0 - (theta / np.pi)              # normalize to [0, 1]
         sim = np.exp(3 * sim)              # sharpen, range [1, e^3]
-        
+
         return sim
