@@ -280,7 +280,7 @@ class SD3Inferencer:
         print(f"Loading SD3 model {os.path.basename(model)}...")
         self.sd3 = SD3(os.path.join(model_folder, model), shift, controlnet_ckpt, verbose, "cuda")
         print("Loading VAE model...")
-        self.vae = VAE(vae or model)
+        self.vae = VAE(vae or os.path.join(model_folder, model))
         print("Models loaded.")
 
     def get_empty_latent(self, batch_size, width, height, seed, device="cuda"):
