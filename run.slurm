@@ -33,6 +33,4 @@ export TMPDIR=${USER_DIR}/tmp
 export CONDA_PKGS_DIRS=${USER_DIR}/.cache/conda/pkgs
 export CONDA_ENVS_PATH=${USER_DIR}/conda-envs
 
-conda run -n myenv create_plots.py --base_dir  "outputs/grpo-nn/dogs/G8_SA005_AA10_E1_Pdog_Srand/" "outputs/grpo-nn/dogs/G8_SA005_AA15_E1_Pdog_Srand/" "outputs/grpo-nn/dogs/G8_SA005_AA20_E1_Pdog_Srand/"
-
-# conda run -n myenv python reinforce_main.py  --num_epochs 1   --prompts_file "dog_nodog_prompts_shuffle.txt"  --state_alpha 0.05 --action_alpha 1.0 --experiment_name G8_SA005_AA10_E1_Pdog_Srand --group_size 8 --out_dir "outputs/grpo-nn/dogs"
+conda run -n myenv python reinforce_main.py --lr 1e-4 --schedule 4 --num_epochs 30 --state_alpha 0.05 --action_alpha 1 --experiment_name T4_LR1e-4_Ioi_Pdance_S23 --group_size 8 --out_dir "outputs/grpo-nn/dancer" --prompts "A woman performing an intricate dance on stage..." --seeds 23 --faiss_index "faiss_indexes/open-images-03"

@@ -135,7 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--reward_scorer", type=str, default="knn_1", choices=["knn_1", "knn_2", "knn_3", "sharp_contrast", "brightness", "entropy"])
     parser.add_argument("--faiss_index", type=str, default="faiss_indexes/dog_index")
     parser.add_argument("--steps", type=int, default=28)
-    parser.add_argument("--cfg_scale", type=float, default=3.5)
+    parser.add_argument("--cfg_scale", type=float, default=4.5)
     parser.add_argument("--save_tensor_logs", type=str2bool, default="False")
     parser.add_argument("--latent_encoding_dim", type=int, default=128)
     parser.add_argument("--cond_encoding_dim", type=int, default=32)
@@ -144,5 +144,5 @@ if __name__ == "__main__":
     parser.add_argument("--sampler", type=str, default="dpmpp_2m")
     parser.add_argument("--clip_dir", type=str, default='/scratch200/itaytuviah/models/models--openai--clip-vit-large-patch14')
     args = parser.parse_args()
-    
+
     main(args)

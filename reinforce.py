@@ -524,95 +524,94 @@ class GRPOTrainer:
         previous_logp = None
 
         for epoch in range(1, cfg.num_epochs + 1):
-            for t in cfg.schedule:
-                for i, pr in enumerate(prompts):
-                    
-                    if generate_seeds:
-                        seeds = [torch.randint(0, 2**30, (1,)).item()] # generate a seed
+            for i, pr in enumerate(prompts):
+                
+                if generate_seeds:
+                    seeds = [torch.randint(0, 2**30, (1,)).item()] # generate a seed
 
-                    for j, sd in enumerate(seeds):
-                        tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_ref"
-                        save_dir = (os.path.join(cfg.out_dir, 'imgs') if epoch % cfg.save_every == 0 else None)
-                        img_ref = self._run_once(pr, sd, cfg.width, cfg.height, wrapper=None, save_dir=save_dir, tag=tag)
-                        r_ref = float(reward_fn(pr, img_ref))
+                for j, sd in enumerate(seeds):
+                    tag = f"ep{epoch:02d}_p{i:02d}_s{j:02d}_ref"
+                    save_dir = (os.path.join(cfg.out_dir, 'imgs') if epoch % cfg.save_every == 0 else None)
+                    img_ref = self._run_once(pr, sd, cfg.width, cfg.height, wrapper=None, save_dir=save_dir, tag=tag)
+                    r_ref = float(reward_fn(pr, img_ref))
 
-                        # Collect a group of (logp, reward)
-                        logps: List[torch.Tensor] = []
-                        rewards: List[float] = []
-                        advantages: List[float] = []
-                        for g in range(cfg.group_size):
-                            generator = torch.Generator(device=bank.device)
-                            generator.manual_seed(hash((epoch, t, i, j, g)) & 0xFFFFFFFF)
-                            
-                            tag = f"ep{epoch:02d}_t{t:03d}_p{i:02d}_s{j:02d}_g{g:02d}"
-
-                            base = _sdm.CFGDenoiser(self.inf.sd3.model)
-                            wrapper = GRPODenoiserWrapper(
-                                base_denoiser=base,
-                                bank=bank,
-                                schedule=(t,),                # in training, train policies for different t separately
-                                cfg_scale=self.cfg,
-                                sigmas=self.sigmas,           # pass precomputed schedule
-                                total_steps=self.steps,
-                                generator=generator,
-                                out_dir=cfg.out_dir,
-                                save_tensor_logs=cfg.save_tensor_logs,
-                                tag=tag,
-                            )
-                            img = self._run_once(pr, sd, cfg.width, cfg.height,
-                                                 wrapper=wrapper,
-                                                 tag=tag,
-                                                 save_dir=(os.path.join(cfg.out_dir, 'imgs') if epoch % cfg.save_every == 0 else None))
-                            r = float(reward_fn(pr, img))
-                            rewards.append(r)
-                            logps.append(wrapper.logged_logp)
-                            advantages.append(r - r_ref)
-
-                        # Group-normalised advantages
-                        normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
-                        normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-6)  # (G,)
-                        normalized_advantages = normalized_advantages.clamp(min=-3.0, max=3.0)
-
-                        normalized_rewards = torch.tensor(rewards, device=bank.device, dtype=torch.float32)
-                        normalized_rewards = (normalized_rewards - normalized_rewards.mean()) / normalized_rewards.std(unbiased=False).clamp_min(1e-6)  # (G,)
-                        normalized_rewards = normalized_rewards.clamp(min=-3.0, max=3.0)
+                    # Collect a group of (logp, reward)
+                    logps: List[torch.Tensor] = []
+                    rewards: List[float] = []
+                    advantages: List[float] = []
+                    for g in range(cfg.group_size):
+                        generator = torch.Generator(device=bank.device)
+                        generator.manual_seed(hash((epoch, cfg.schedule, i, j, g)) & 0xFFFFFFFF)
                         
-                        torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
+                        tag = f"ep{epoch:02d}_p{i:02d}_s{j:02d}_g{g:02d}"
+
+                        base = _sdm.CFGDenoiser(self.inf.sd3.model)
+                        wrapper = GRPODenoiserWrapper(
+                            base_denoiser=base,
+                            bank=bank,
+                            schedule=cfg.schedule,                # in training, train policies for different t separately
+                            cfg_scale=self.cfg,
+                            sigmas=self.sigmas,           # pass precomputed schedule
+                            total_steps=self.steps,
+                            generator=generator,
+                            out_dir=cfg.out_dir,
+                            save_tensor_logs=cfg.save_tensor_logs,
+                            tag=tag,
+                        )
+                        img = self._run_once(pr, sd, cfg.width, cfg.height,
+                                                wrapper=wrapper,
+                                                tag=tag,
+                                                save_dir=(os.path.join(cfg.out_dir, 'imgs') if epoch % cfg.save_every == 0 else None))
+                        r = float(reward_fn(pr, img))
+                        rewards.append(r)
+                        logps.append(wrapper.logged_logp)
+                        advantages.append(r - r_ref)
+
+                    # Group-normalised advantages
+                    normalized_advantages = torch.tensor(advantages, device=bank.device, dtype=torch.float32)
+                    normalized_advantages = (normalized_advantages - normalized_advantages.mean()) / normalized_advantages.std(unbiased=False).clamp_min(1e-6)  # (G,)
+                    normalized_advantages = normalized_advantages.clamp(min=-3.0, max=3.0)
+
+                    normalized_rewards = torch.tensor(rewards, device=bank.device, dtype=torch.float32)
+                    normalized_rewards = (normalized_rewards - normalized_rewards.mean()) / normalized_rewards.std(unbiased=False).clamp_min(1e-6)  # (G,)
+                    normalized_rewards = normalized_rewards.clamp(min=-3.0, max=3.0)
+                    
+                    torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
 
 
-                        logp_tensor = torch.stack(logps, dim=0)  # (G,)
-                        last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
-                        action_dim = last_linear.out_features // 2
+                    logp_tensor = torch.stack(logps, dim=0)  # (G,)
+                    last_linear = [m for m in bank.policy(int(t)).actor.modules() if isinstance(m, torch.nn.Linear)][-1]
+                    action_dim = last_linear.out_features // 2
 
-                        kld = torch.tensor(0.0, device=bank.device)
-                        if previous_logp is not None:
-                            kld = (previous_logp - logp_tensor).mean()
-                        previous_logp = logp_tensor.detach().clone()
+                    kld = torch.tensor(0.0, device=bank.device)
+                    if previous_logp is not None:
+                        kld = (previous_logp - logp_tensor).mean()
+                    previous_logp = logp_tensor.detach().clone()
 
-                        logp_entropy = -((-0.5 * (((logp_tensor) ** 2) + math.log(2 * math.pi))).mean())
+                    logp_entropy = -((-0.5 * (((logp_tensor) ** 2) + math.log(2 * math.pi))).mean())
 
-                        loss = -(normalized_advantages.detach() * (logp_tensor / max(1, action_dim))).mean() # + 0.1 * kld - 0.01 * logp_entropy
+                    loss = -(normalized_advantages.detach() * (logp_tensor / max(1, action_dim))).mean() # + 0.1 * kld - 0.01 * logp_entropy
 
-                        logger({
-                            "epoch": epoch,
-                            "t": t,
-                            "prompt_idx": i,
-                            "seed_idx": j,
-                            'ref_reward': r_ref,
-                            "rewards": rewards,
-                            "advantages": advantages,
-                            "normalized_advantages": normalized_advantages.tolist(),
-                            "normalized_rewards": normalized_rewards.tolist(),
-                            "logps": logp_tensor.tolist(),
-                            "kld": kld.item(),
-                            "logp_entropy": logp_entropy.item(),
-                            "loss": loss.item(),
-                        }, f"{cfg.out_dir}/logs/training_log_group.log")
+                    logger({
+                        "epoch": epoch,
+                        "schedule": cfg.schedule,
+                        "prompt_idx": i,
+                        "seed_idx": j,
+                        'ref_reward': r_ref,
+                        "rewards": rewards,
+                        "advantages": advantages,
+                        "normalized_advantages": normalized_advantages.tolist(),
+                        "normalized_rewards": normalized_rewards.tolist(),
+                        "logps": logp_tensor.tolist(),
+                        "kld": kld.item(),
+                        "logp_entropy": logp_entropy.item(),
+                        "loss": loss.item(),
+                    }, f"{cfg.out_dir}/logs/training_log_group.log")
 
-                        opt.zero_grad(set_to_none=True)
-                        loss.backward()
-                        torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
-                        opt.step()
+                    opt.zero_grad(set_to_none=True)
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(bank.parameters(), cfg.max_grad_norm)
+                    opt.step()
                         
 
             if epoch % cfg.save_every == 0:
