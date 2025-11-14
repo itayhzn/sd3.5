@@ -397,7 +397,7 @@ class GRPODenoiserWrapper:
 @dataclass
 class Config:
     # GRPO
-    schedule: Tuple[int, ...] = (10, 20, 35)
+    schedule: Sequence[int] = [10, 20, 35]
     group_size: int = 4
     num_epochs: int = 2
     lr: float = 3e-4

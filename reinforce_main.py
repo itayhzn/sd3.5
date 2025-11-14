@@ -38,7 +38,7 @@ def main(args):
     out_dir = os.path.join(args.out_dir, args.experiment_name)
 
     conf = Config(
-        schedule=tuple(args.schedule),
+        schedule=args.schedule,
         group_size=args.group_size,
         num_epochs=args.num_epochs,
         lr=args.lr,

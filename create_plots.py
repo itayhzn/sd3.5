@@ -18,10 +18,18 @@ import gc
 import json
 import argparse
 
+def replace_tuples_to_lists(str_obj):
+    # find number tuples (could be ints or floats, positive or negative, possibly scientific notation, and possibly one numbered tuples (e.g. (1,))) and replace parentheses with brackets
+    pattern = r'\((-?\d+(\.\d+)?(e-?\d+)?,(\s*-?\d+(\.\d+)?(e-?\d+)?,)+|-?\d+(\.\d+)?(e-?\d+)?,)\)'
+    while re.search(pattern, str_obj):
+        str_obj = re.sub(pattern, lambda m: '[' + m.group(1) + ']', str_obj)
+    return str_obj
+
 def read_dfs(dirname):
     with open(f'{dirname}/logs/training_log_group.log', 'r') as f:
         logs = f.read().replace("'", '"').replace('nan', 'null')
         logs = logs.replace('tensor(', '').replace(', device="cuda:0", grad_fn=<NegBackward0>)', '').replace(', device="cuda:0", grad_fn=<MeanBackward0>)', '').replace('.,', '.0,')
+        logs = replace_tuples_to_lists(logs)
         logs = logs.splitlines()
         logs = [json.loads(line) for line in logs if line.strip()]
 
