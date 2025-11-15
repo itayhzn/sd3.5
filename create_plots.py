@@ -19,8 +19,9 @@ import json
 import argparse
 
 def replace_tuples_to_lists(str_obj):
-    # find number tuples (could be ints or floats, positive or negative, possibly scientific notation, and possibly one numbered tuples (e.g. (1,))) and replace parentheses with brackets
-    pattern = r'\((-?\d+(\.\d+)?(e-?\d+)?,(\s*-?\d+(\.\d+)?(e-?\d+)?,)+|-?\d+(\.\d+)?(e-?\d+)?,)\)'
+    str_obj = str_obj.replace(',)', ')')
+    # find tuples and replace parentheses with brackets
+    pattern = r'\(([^()]+?)\)'
     while re.search(pattern, str_obj):
         str_obj = re.sub(pattern, lambda m: '[' + m.group(1) + ']', str_obj)
     return str_obj
